@@ -9,7 +9,7 @@ export const metadata = {
   description:
     "Explore the KCAPTURED portfolio with lifestyle, studio, portrait, and athletic photography from Jessup, Maryland and the DMV.",
   keywords: [
-    "KCAPTURED portfolio",
+    "Kcaptured Visuals",
     "DMV photography portfolio",
     "Jessup Maryland portraits",
     "studio photography examples",

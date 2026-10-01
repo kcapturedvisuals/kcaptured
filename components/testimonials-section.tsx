@@ -19,7 +19,7 @@ export function TestimonialsSection() {
         }
         const data = await response.json();
         if (!Array.isArray(data)) {
-          throw new Error('Unexpected testimonials response');
+          throw new Error('Unexpected response');
         }
         setTestimonials(data);
       } catch (error) {

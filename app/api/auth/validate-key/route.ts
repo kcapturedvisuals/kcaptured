@@ -2,6 +2,7 @@ import { appendUploadLog, getClientIp } from "@/lib/logger";
 import { generateUploadToken } from "@/lib/auth-utils";
 import { pool } from "@/lib/db";
 import { randomUUID } from "crypto";
+import { isRecord, readJsonBody } from "@/lib/input-validation";
 
 export const runtime = "nodejs";
 
@@ -9,9 +10,9 @@ export async function POST(request: Request) {
   const ip = getClientIp(request);
   const userAgent = request.headers.get("user-agent") ?? "unknown";
 
-  let body: { key?: string } = {};
+  let body: unknown;
   try {
-    body = (await request.json()) as { key?: string };
+    body = await readJsonBody(request, 4 * 1024);
   } catch {
     await appendUploadLog({
       type: "key_failed",
@@ -25,7 +26,20 @@ export async function POST(request: Request) {
     });
   }
 
-  const providedKey = String(body.key ?? "");
+  if (!isRecord(body) || typeof body.key !== "string" || body.key.length > 256) {
+    await appendUploadLog({
+      type: "key_failed",
+      error: "Invalid key input",
+      ip,
+      userAgent,
+    });
+    return new Response(JSON.stringify({ error: "Invalid request" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const providedKey = body.key;
   const secretKey = process.env.UPLOAD_KEY;
 
   if (!secretKey) {
@@ -53,7 +67,7 @@ export async function POST(request: Request) {
       userAgent,
     });
 
-    return new Response(JSON.stringify({ success: true, token }), {
+    return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers: {
         "Content-Type": "application/json",

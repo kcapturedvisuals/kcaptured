@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { sanitizeText } from '@/lib/input-validation'
 
 export function ResendLinkForm() {
   const [message, setMessage] = useState('')
@@ -13,7 +14,7 @@ export function ResendLinkForm() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (sending) return
-    const email = String(new FormData(event.currentTarget).get('email') ?? '')
+    const email = sanitizeText(new FormData(event.currentTarget).get('email')).toLowerCase()
     setSending(true)
     setError('')
     setMessage('')
@@ -36,7 +37,7 @@ export function ResendLinkForm() {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-2xl border border-zinc-800 p-5">
       <Label htmlFor="lookup-email" className="text-sm font-semibold text-white">
-        Already booked? Get your link again
+        Already booked? Get your dashboard link
       </Label>
       <div className="flex gap-2">
         <Input
@@ -44,6 +45,7 @@ export function ResendLinkForm() {
           name="email"
           type="email"
           required
+          maxLength={254}
           placeholder="you@example.com"
           autoComplete="email"
           className="h-10 border-zinc-800 bg-zinc-950 text-white placeholder:text-zinc-600"

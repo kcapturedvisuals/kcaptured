@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { isValidEmail, sanitizePhone, sanitizeText } from "@/lib/input-validation";
 import {
   LayoutDashboard,
   Image as ImageIcon,
@@ -1271,7 +1272,6 @@ function PortfolioPage({
   };
 
   const adminHeaders = () => ({
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
@@ -1911,6 +1911,7 @@ function PortfolioPage({
           <FInput
             label="Title"
             value={form.title}
+            maxLength={160}
             onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
             placeholder="Image title"
           />
@@ -1937,6 +1938,7 @@ function PortfolioPage({
             }
             placeholder="Brief description or caption..."
             rows={3}
+            maxLength={2000}
           />
 
           <Toggle
@@ -2053,12 +2055,10 @@ function PackagesPage({
 
   const adminHeaders = () => ({
     "Content-Type": "application/json",
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
   const uploadHeaders = () => ({
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
@@ -2305,6 +2305,7 @@ function PackagesPage({
           <FInput
             label="Category"
             value={form.category}
+            maxLength={80}
             onChange={(e) =>
               setForm((f) => ({ ...f, category: e.target.value }))
             }
@@ -2313,6 +2314,7 @@ function PackagesPage({
           <FInput
             label="Package Name"
             value={form.name}
+            maxLength={120}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="e.g. Wedding Day"
           />
@@ -2320,6 +2322,9 @@ function PackagesPage({
             <FInput
               label="Price ($)"
               type="number"
+              min={0}
+              max={1000000}
+              step={1}
               value={form.price}
               onChange={(e) =>
                 setForm((f) => ({ ...f, price: Number(e.target.value) }))
@@ -2329,6 +2334,7 @@ function PackagesPage({
             <FInput
               label="Duration"
               value={form.duration}
+              maxLength={80}
               onChange={(e) =>
                 setForm((f) => ({ ...f, duration: e.target.value }))
               }
@@ -2338,6 +2344,8 @@ function PackagesPage({
           <FInput
             label="Edited Images"
             type="number"
+            min={0}
+            max={10000}
             value={form.images}
             onChange={(e) =>
               setForm((f) => ({ ...f, images: Number(e.target.value) }))
@@ -2393,6 +2401,7 @@ function PackagesPage({
               setForm((f) => ({ ...f, description: e.target.value }))
             }
             rows={3}
+            maxLength={2000}
             placeholder="Package description..."
           />
           <FTextarea
@@ -2402,6 +2411,7 @@ function PackagesPage({
               setForm((f) => ({ ...f, features: e.target.value }))
             }
             rows={5}
+            maxLength={30000}
             placeholder={"Online gallery\nHigh-res downloads\nBasic retouching"}
           />
           <FSelect
@@ -2546,7 +2556,6 @@ function TestimonialsPage({
 
   const adminHeaders = () => ({
     "Content-Type": "application/json",
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
@@ -2757,6 +2766,7 @@ function TestimonialsPage({
           <FInput
             label="Client Name"
             value={form.client}
+            maxLength={120}
             onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))}
             placeholder="Client full name"
           />
@@ -2791,6 +2801,7 @@ function TestimonialsPage({
             value={form.text}
             onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
             rows={4}
+            maxLength={5000}
             placeholder="What the client said..."
           />
           <div className="flex flex-col gap-1.5">
@@ -2903,13 +2914,26 @@ function BookingsPage({
   };
 
   const handleCreateBooking = async () => {
-    if (!newBooking.client.trim()) {
+    const clientName = sanitizeText(newBooking.client);
+    const email = sanitizeText(newBooking.email).toLowerCase();
+    const phone = sanitizePhone(newBooking.phone);
+    const packageName = sanitizeText(newBooking.package);
+    const notes = sanitizeText(newBooking.notes);
+    if (!clientName || clientName.length > 120) {
       setCreateError("Client name is required.");
       return;
     }
 
-    if (!newBooking.email.trim() && !newBooking.phone.trim()) {
+    if (!email && !phone) {
       setCreateError("Add at least one contact method.");
+      return;
+    }
+    if ((email && !isValidEmail(email)) || phone === null || (phone?.length ?? 0) > 40) {
+      setCreateError("Enter a valid email address or phone number.");
+      return;
+    }
+    if (packageName.length > 120 || notes.length > 2000) {
+      setCreateError("Package or notes exceed the allowed length.");
       return;
     }
 
@@ -2921,16 +2945,15 @@ function BookingsPage({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         },
         body: JSON.stringify({
-          clientName: newBooking.client.trim(),
-          email: newBooking.email.trim(),
-          phone: newBooking.phone.trim(),
-          packageName: newBooking.package.trim(),
+          clientName,
+          email,
+          phone: phone ?? "",
+          packageName,
           preferredDate: newBooking.preferredDate || null,
-          notes: newBooking.notes.trim(),
+          notes,
           status: BOOKING_STATUS_VALUES[newBooking.status],
           idempotencyKey: crypto.randomUUID(),
         }),
@@ -2993,7 +3016,6 @@ function BookingsPage({
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         },
         body: JSON.stringify({ id, status: statusValues[next] }),
@@ -3189,6 +3211,7 @@ function BookingsPage({
           <FInput
             label="Client Name"
             value={newBooking.client}
+            maxLength={120}
             onChange={(e) =>
               setNewBooking((f) => ({ ...f, client: e.target.value }))
             }
@@ -3200,6 +3223,7 @@ function BookingsPage({
               label="Email"
               type="email"
               value={newBooking.email}
+              maxLength={254}
               onChange={(e) =>
                 setNewBooking((f) => ({ ...f, email: e.target.value }))
               }
@@ -3208,6 +3232,7 @@ function BookingsPage({
             <FInput
               label="Phone"
               value={newBooking.phone}
+              maxLength={40}
               onChange={(e) =>
                 setNewBooking((f) => ({ ...f, phone: e.target.value }))
               }
@@ -3265,6 +3290,7 @@ function BookingsPage({
           <FTextarea
             label="Notes"
             value={newBooking.notes}
+            maxLength={2000}
             onChange={(e) =>
               setNewBooking((f) => ({ ...f, notes: e.target.value }))
             }
@@ -3543,7 +3569,6 @@ function SettingsPage({
   useEffect(() => {
     fetch("/api/settings", {
       headers: {
-        Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
         "x-upload-source": "kc-upload",
       },
     })
@@ -3585,7 +3610,6 @@ function SettingsPage({
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         },
         body: JSON.stringify({
@@ -3638,6 +3662,7 @@ function SettingsPage({
               <FInput
                 label="Studio Name"
                 value={form.studioName}
+                maxLength={120}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, studioName: e.target.value }))
                 }
@@ -3646,6 +3671,7 @@ function SettingsPage({
                 label="Contact Email"
                 type="email"
                 value={form.email}
+                maxLength={254}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, email: e.target.value }))
                 }
@@ -3653,6 +3679,7 @@ function SettingsPage({
               <FInput
                 label="Phone"
                 value={form.phone}
+                maxLength={40}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, phone: e.target.value }))
                 }
@@ -3660,6 +3687,7 @@ function SettingsPage({
               <FInput
                 label="Instagram Handle"
                 value={form.instagram}
+                maxLength={80}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, instagram: e.target.value }))
                 }
@@ -3668,6 +3696,7 @@ function SettingsPage({
                 label="Booking Email"
                 type="email"
                 value={form.bookingEmail}
+                maxLength={254}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, bookingEmail: e.target.value }))
                 }
@@ -3675,6 +3704,7 @@ function SettingsPage({
               <FInput
                 label="Hero Label"
                 value={form.heroLabel}
+                maxLength={120}
                 onChange={(e) => setForm((f) => ({ ...f, heroLabel: e.target.value }))}
               />
               <div>
@@ -3774,12 +3804,14 @@ export function FigmaAdmin({
   };
 
   useEffect(() => {
+    sessionStorage.removeItem("uploadToken");
+    sessionStorage.removeItem("uploadTokenExpiry");
+
     let mounted = true;
 
     async function loadData() {
       try {
         const adminHeaders = {
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         };
         const [
@@ -3942,7 +3974,6 @@ export function FigmaAdmin({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
         "x-upload-source": "kc-upload",
       },
       body: JSON.stringify({

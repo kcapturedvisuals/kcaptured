@@ -1,5 +1,6 @@
 import { pool } from '@/lib/db'
-import { verifyUploadToken } from '@/lib/auth-utils'
+import { verifyUploadRequest } from '@/lib/auth-utils'
+import { isRecord, isValidEmail, readJsonBody, sanitizePhone, sanitizeText } from '@/lib/input-validation'
 import { randomUUID } from 'crypto'
 
 export const runtime = 'nodejs'
@@ -9,8 +10,7 @@ function json(data: unknown, status = 200) {
 }
 
 function isAdmin(request: Request) {
-  const token = (request.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
-  return Boolean(token && request.headers.get('x-upload-source') === 'kc-upload' && verifyUploadToken(token))
+  return verifyUploadRequest(request)
 }
 
 function mapRow(row: any) {
@@ -41,11 +41,33 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   if (!isAdmin(request)) return json({ error: 'Unauthorized' }, 401)
   try {
-    const body = await request.json()
+    const body = await readJsonBody(request)
+    if (!isRecord(body)) return json({ error: 'Invalid settings' }, 400)
     const max = Number(body.maxConcurrentBookings ?? 10)
     if (!Number.isInteger(max) || max < 0 || max > 10000) return json({ error: 'Maximum bookings must be a valid number' }, 400)
-    const paymentInstructions = String(body.paymentInstructions ?? '').trim().slice(0, 2000) || null
-    const result = await pool.query(`INSERT INTO site_settings (id, studio_name, email, phone, instagram_handle, booking_email, max_concurrent_bookings, hero_label, portfolio_view, payment_instructions, created_at, updated_at) VALUES ('site-settings',$1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now()) ON CONFLICT (id) DO UPDATE SET studio_name = EXCLUDED.studio_name, email = EXCLUDED.email, phone = EXCLUDED.phone, instagram_handle = EXCLUDED.instagram_handle, booking_email = EXCLUDED.booking_email, max_concurrent_bookings = EXCLUDED.max_concurrent_bookings, hero_label = EXCLUDED.hero_label, portfolio_view = EXCLUDED.portfolio_view, payment_instructions = EXCLUDED.payment_instructions, updated_at = now() RETURNING *`, [String(body.studioName ?? '').trim() || 'KCAPTURED Studios', body.email || null, body.phone || null, body.instagramHandle || null, body.bookingEmail || null, max, body.heroLabel ?? 'KCAPTURED VISUALS', body.portfolioView ?? 'current', paymentInstructions])
+    const stringFields = ['studioName', 'email', 'phone', 'instagramHandle', 'bookingEmail', 'heroLabel', 'portfolioView', 'paymentInstructions']
+    if (stringFields.some((field) => body[field] != null && typeof body[field] !== 'string'))
+      return json({ error: 'Settings fields must be text' }, 400)
+    const studioName = sanitizeText(body.studioName) || 'KCAPTURED Studios'
+    const email = sanitizeText(body.email).toLowerCase()
+    const phone = sanitizePhone(body.phone)
+    const instagramHandle = sanitizeText(body.instagramHandle)
+    const bookingEmail = sanitizeText(body.bookingEmail).toLowerCase()
+    const heroLabel = sanitizeText(body.heroLabel) || 'KCAPTURED VISUALS'
+    const portfolioView = sanitizeText(body.portfolioView) || 'current'
+    const paymentInstructions = sanitizeText(body.paymentInstructions) || null
+    if (
+      studioName.length > 120 || email.length > 254 || bookingEmail.length > 254 ||
+      instagramHandle.length > 80 || heroLabel.length > 120 || portfolioView.length > 40 ||
+      (paymentInstructions?.length ?? 0) > 2000 || phone === null || (phone?.length ?? 0) > 40
+    ) return json({ error: 'One or more settings exceed the allowed length or format' }, 400)
+    if ((email && !isValidEmail(email)) || (bookingEmail && !isValidEmail(bookingEmail)))
+      return json({ error: 'Enter a valid settings email address' }, 400)
+    if (instagramHandle && !/^@?[A-Za-z0-9._]{1,30}$/.test(instagramHandle))
+      return json({ error: 'Enter a valid Instagram handle' }, 400)
+    if (!['current', 'masonry'].includes(portfolioView))
+      return json({ error: 'Choose a valid portfolio view' }, 400)
+    const result = await pool.query(`INSERT INTO site_settings (id, studio_name, email, phone, instagram_handle, booking_email, max_concurrent_bookings, hero_label, portfolio_view, payment_instructions, created_at, updated_at) VALUES ('site-settings',$1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now()) ON CONFLICT (id) DO UPDATE SET studio_name = EXCLUDED.studio_name, email = EXCLUDED.email, phone = EXCLUDED.phone, instagram_handle = EXCLUDED.instagram_handle, booking_email = EXCLUDED.booking_email, max_concurrent_bookings = EXCLUDED.max_concurrent_bookings, hero_label = EXCLUDED.hero_label, portfolio_view = EXCLUDED.portfolio_view, payment_instructions = EXCLUDED.payment_instructions, updated_at = now() RETURNING *`, [studioName, email || null, phone || null, instagramHandle || null, bookingEmail || null, max, heroLabel, portfolioView, paymentInstructions])
     await pool.query('INSERT INTO audit_logs (id, action, entity_type, description, actor, created_at) VALUES ($1,$2,$3,$4,$5,now())', [randomUUID(), 'settings_updated', 'Settings', 'Updated site settings', 'admin'])
     return json(mapRow(result.rows[0]))
   } catch (error) {

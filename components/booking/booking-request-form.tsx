@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/spinner'
+import { sanitizePhone, sanitizeText } from '@/lib/input-validation'
 
 interface PackageOption {
   name: string
@@ -19,6 +20,15 @@ const fieldClass = 'h-11 border-zinc-800 bg-zinc-950 text-white placeholder:text
 function todayIso() {
   const now = new Date()
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
+function maskEmail(email: string) {
+  const [localPart, domain] = email.split('@')
+  if (!domain) return 'your email address'
+  const visibleLocal = localPart.length > 2
+    ? `${localPart[0]}***${localPart[localPart.length - 1]}`
+    : `${localPart[0] ?? ''}***`
+  return `${visibleLocal}@${domain}`
 }
 
 export function BookingRequestForm({ packages, initialPackage }: { packages: PackageOption[]; initialPackage: string }) {
@@ -39,18 +49,18 @@ export function BookingRequestForm({ packages, initialPackage }: { packages: Pac
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clientName: data.get('clientName'),
-          email: data.get('email'),
-          phone: data.get('phone'),
-          packageName: data.get('packageName'),
+          clientName: sanitizeText(data.get('clientName')),
+          email: sanitizeText(data.get('email')).toLowerCase(),
+          phone: sanitizePhone(data.get('phone')) ?? '',
+          packageName: sanitizeText(data.get('packageName')),
           preferredDate: data.get('preferredDate') || null,
-          notes: data.get('notes'),
+          notes: sanitizeText(data.get('notes')),
           idempotencyKey,
         }),
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.error || 'Something went wrong. Please try again.')
-      setSubmittedEmail(String(data.get('email') ?? ''))
+      setSubmittedEmail(maskEmail(sanitizeText(data.get('email')).toLowerCase()))
       form.reset()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')

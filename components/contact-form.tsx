@@ -4,16 +4,13 @@ import { useRef, useState } from 'react';
 import { Mail } from 'lucide-react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-
-const FORMSPREE_FORM_ID = process.env.NEXT_PUBLIC_FORMSPREE_ID || '';
-const FORMSPREE_ENDPOINT = FORMSPREE_FORM_ID
-  ? `https://formspree.io/f/${FORMSPREE_FORM_ID}`
-  : '';
+import { isValidEmail, sanitizeText } from '@/lib/input-validation';
 
 export function ContactForm() {
   const sectionRef = useRef<HTMLElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [formError, setFormError] = useState('');
   const aboutImageUrl = 'https://res.cloudinary.com/dq4tkpuu4/image/upload/v1779992592/Kenny_v7ay6n.png';
   const { scrollYProgress } = useScroll({
     target: sectionRef,
@@ -38,16 +35,11 @@ export function ContactForm() {
       return;
     }
 
-    const name = formData.get('name')?.toString().trim() ?? '';
-    const email = formData.get('email')?.toString().trim() ?? '';
-    const subject = formData.get('subject')?.toString().trim() || 'Photography Inquiry';
-    const message = formData.get('message')?.toString().trim() ?? '';
-
-    if (!FORMSPREE_ENDPOINT) {
-      console.error('Missing NEXT_PUBLIC_FORMSPREE_ID environment variable.');
-      setIsSubmitting(false);
-      return;
-    }
+    const name = sanitizeText(formData.get('name'));
+    const email = sanitizeText(formData.get('email')).toLowerCase();
+    const subject = sanitizeText(formData.get('subject')) || 'Photography Inquiry';
+    const message = sanitizeText(formData.get('message'));
+    setFormError('');
 
     if (
       !name ||
@@ -55,37 +47,32 @@ export function ContactForm() {
       !message ||
       name.length > 100 ||
       subject.length > 150 ||
-      message.length > 2000
+      message.length > 2000 ||
+      !isValidEmail(email)
     ) {
-      console.error('Contact form validation failed.');
+      setFormError('Check the name, email, subject, and message fields and try again.');
       setIsSubmitting(false);
       return;
     }
 
-    const submissionData = new FormData();
-    submissionData.append('name', name);
-    submissionData.append('email', email);
-    submissionData.append('_replyto', email);
-    submissionData.append('subject', subject);
-    submissionData.append('_subject', subject);
-    submissionData.append('message', message);
-
     try {
-      const response = await fetch(FORMSPREE_ENDPOINT, {
+      const response = await fetch('/api/contact', {
         method: 'POST',
-        body: submissionData,
-        headers: {
-          Accept: 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, subject, message }),
       });
 
       if (response.ok) {
         setSubmitted(true);
         formElement.reset();
         setTimeout(() => setSubmitted(false), 5000);
+      } else {
+        const result = await response.json().catch(() => ({}));
+        setFormError(result.error || 'Your message could not be sent. Please try again.');
       }
     } catch (error) {
       console.error('Form submission error:', error);
+      setFormError('Your message could not be sent. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -156,6 +143,8 @@ export function ContactForm() {
             </div>
           </div>
 
+          {formError && <p role="alert" className="text-sm text-red-300">{formError}</p>}
+
           <div className="flex flex-col gap-2">
             <label htmlFor="message" className="text-[10px] uppercase tracking-[0.22em] text-[#666]">
               Message
@@ -174,7 +163,7 @@ export function ContactForm() {
           <div className="flex justify-end pt-1">
             <Button
               type="submit"
-              disabled={isSubmitting || !FORMSPREE_ENDPOINT}
+              disabled={isSubmitting}
               className="rounded-none border-0 bg-[#c0392b] px-7 py-3 text-[11px] font-medium uppercase tracking-[0.18em] text-white hover:bg-[#a93226] disabled:bg-[#c0392b]/40"
             >
               <Mail size={16} />

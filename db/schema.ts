@@ -47,11 +47,18 @@ export const bookings = pgTable('bookings', {
 	updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 	idempotency_key: text('idempotency_key').unique(),
 	manage_token: text('manage_token').unique(),
+	package_price: integer('package_price'),
 	confirmed_at: timestamp('confirmed_at', { withTimezone: true }),
 	cancelled_at: timestamp('cancelled_at', { withTimezone: true }),
 	cancelled_by: text('cancelled_by'),
 	confirmation_email_sent_at: timestamp('confirmation_email_sent_at', { withTimezone: true }),
 	cancellation_email_sent_at: timestamp('cancellation_email_sent_at', { withTimezone: true }),
+})
+
+export const bookingLinkRateLimits = pgTable('booking_link_rate_limits', {
+	email_hash: text('email_hash').primaryKey(),
+	request_count: integer('request_count').notNull(),
+	window_started_at: timestamp('window_started_at', { withTimezone: true }).notNull(),
 })
 
 export const testimonials = pgTable('testimonials', {
@@ -93,4 +100,3 @@ export const auditLogs = pgTable('audit_logs', {
 	actor: text('actor'),
 	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
-

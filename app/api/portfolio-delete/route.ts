@@ -1,7 +1,8 @@
 import { v2 as cloudinary } from 'cloudinary'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
-import { verifyUploadToken } from '@/lib/auth-utils'
+import { verifyUploadRequest } from '@/lib/auth-utils'
 import db, { pool } from '@/lib/db'
+import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
 
 export const runtime = 'nodejs'
 
@@ -14,11 +15,9 @@ cloudinary.config({
 export async function POST(request: Request) {
   const ip = getClientIp(request)
   const userAgent = request.headers.get('user-agent') ?? 'unknown'
-  const authHeader = request.headers.get('authorization') ?? ''
-  const token = authHeader.replace(/^Bearer\s+/i, '')
   const uploadSource = request.headers.get('x-upload-source')
 
-  if (!token || uploadSource !== 'kc-upload' || !verifyUploadToken(token)) {
+  if (!verifyUploadRequest(request)) {
     await appendUploadLog({
       type: 'upload_error',
       error: 'Unauthorized portfolio delete request',
@@ -30,8 +29,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = await request.json()
-    let { id, publicId } = body as { id?: string; publicId?: string }
+    const body = await readJsonBody(request)
+    if (!isRecord(body) || (body.id != null && typeof body.id !== 'string') || (body.publicId != null && typeof body.publicId !== 'string'))
+      return new Response(JSON.stringify({ error: 'Invalid portfolio delete request' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    let id = sanitizeText(body.id)
+    let publicId = sanitizeText(body.publicId)
+    if (id.length > 120 || publicId.length > 255)
+      return new Response(JSON.stringify({ error: 'Portfolio identifier is too long' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
 
     if (!id && !publicId) {
       return new Response(JSON.stringify({ error: 'Missing id or publicId' }), { status: 400, headers: { 'Content-Type': 'application/json' } })

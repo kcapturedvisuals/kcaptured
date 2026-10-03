@@ -57,10 +57,6 @@ function TikTokIcon() {
 }
 
 const UPLOAD_LOCK_KEY = "uploadAuthLock";
-const UPLOAD_ENTRY_KEY = "uploadEntryAllowed";
-const UPLOAD_TOKEN_KEY = "uploadToken";
-const UPLOAD_TOKEN_EXPIRY_KEY = "uploadTokenExpiry";
-const AUTH_WINDOW_MS = 20 * 60 * 1000;
 
 export function Footer() {
   const currentYear = new Date().getFullYear();
@@ -82,18 +78,6 @@ export function Footer() {
           );
       })
       .catch(() => {});
-
-    const entries =
-      (window.performance?.getEntriesByType?.("navigation") as
-        | PerformanceNavigationTiming[]
-        | undefined) ?? [];
-    const navigationType = entries[0]?.type ?? "";
-
-    if (navigationType === "reload") {
-      sessionStorage.removeItem(UPLOAD_LOCK_KEY);
-      sessionStorage.removeItem(UPLOAD_TOKEN_KEY);
-      sessionStorage.removeItem(UPLOAD_TOKEN_EXPIRY_KEY);
-    }
 
     const storedLock = sessionStorage.getItem(UPLOAD_LOCK_KEY);
     if (!storedLock) {
@@ -125,12 +109,6 @@ export function Footer() {
       });
 
       if (response.ok) {
-        const body = await response.json();
-        const token = String(body.token);
-        const expiresAt = Date.now() + AUTH_WINDOW_MS;
-        sessionStorage.setItem(UPLOAD_TOKEN_KEY, token);
-        sessionStorage.setItem(UPLOAD_TOKEN_EXPIRY_KEY, String(expiresAt));
-        sessionStorage.setItem(UPLOAD_ENTRY_KEY, "true");
         router.push("/admin");
         return;
       }
@@ -266,6 +244,7 @@ export function Footer() {
                         <div className="flex items-center gap-2">
                           <Input
                             type="password"
+                            maxLength={256}
                             value={keyValue}
                             onChange={(event) =>
                               setKeyValue(event.target.value)

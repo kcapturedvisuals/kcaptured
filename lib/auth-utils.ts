@@ -26,3 +26,18 @@ export function verifyUploadToken(token: string) {
     return null;
   }
 }
+
+export function verifyUploadRequest(request: Request) {
+  if (request.headers.get("x-upload-source") !== "kc-upload") {
+    return false;
+  }
+
+  const sessionCookie = request.headers
+    .get("cookie")
+    ?.split(";")
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith("admin_session="));
+  const token = sessionCookie?.slice("admin_session=".length);
+
+  return Boolean(token && verifyUploadToken(token));
+}

@@ -3537,6 +3537,7 @@ function SettingsPage({
     maxBookings: "10",
     heroLabel: 'KCAPTURED VISUALS',
     portfolioView: 'current',
+    paymentInstructions: "",
   });
 
   useEffect(() => {
@@ -3562,6 +3563,7 @@ function SettingsPage({
           maxBookings: String(settings.maxConcurrentBookings ?? 10),
           heroLabel: settings.heroLabel ?? 'KCAPTURED VISUALS',
           portfolioView: settings.portfolioView ?? 'current',
+          paymentInstructions: settings.paymentInstructions ?? "",
         })),
       )
       .catch((loadError) =>
@@ -3595,6 +3597,7 @@ function SettingsPage({
           maxConcurrentBookings: form.maxBookings,
           heroLabel: form.heroLabel,
           portfolioView: form.portfolioView,
+          paymentInstructions: form.paymentInstructions,
         }),
       });
     } catch {
@@ -3698,6 +3701,25 @@ function SettingsPage({
                   setForm((f) => ({ ...f, maxBookings: e.target.value }))
                 }
               />
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="payment-instructions"
+                  className="text-[11px] font-medium uppercase tracking-[0.15em] text-zinc-500"
+                >
+                  Payment Instructions
+                </label>
+                <textarea
+                  id="payment-instructions"
+                  rows={5}
+                  maxLength={2000}
+                  value={form.paymentInstructions}
+                  placeholder="Sent in the confirmation email and shown on the client's booking page once confirmed. Leave empty to use the default deposit, Cash App and Zelle details."
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, paymentInstructions: e.target.value }))
+                  }
+                  className="w-full resize-y rounded-md border border-zinc-800 bg-transparent px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
+                />
+              </div>
             </div>
           </SectionCard>
 

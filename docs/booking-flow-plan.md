@@ -1,5 +1,27 @@
 # Booking Flow Implementation Plan
 
+## 0. Decisions and implementation status
+
+Decisions:
+- Domain: `kcapturedstudio.com`. Sending address `bookings@mail.kcapturedstudio.com` (override with `EMAIL_FROM`).
+- Payment directions: editable in Admin > Settings > "Payment Instructions". Falls back to the FAQ deposit/Cash App/Zelle copy when empty.
+- Cancellation: per the FAQ, deposits are non-refundable. Clients can self-cancel until 24 hours before the session; after that the page tells them to email the studio.
+
+Implemented:
+- [x] Migration `drizzle/0007_booking_manage_flow.sql` + `db/schema.ts` (manage_token, confirmed_at, cancelled_at, cancelled_by, confirmation_email_sent_at; `site_settings.payment_instructions`)
+- [x] `lib/email.ts` (Resend REST API, idempotency keys, templates) and `lib/booking-status.ts`
+- [x] `POST /api/bookings` creates token + sends "received" email + admin notification
+- [x] `PATCH /api/bookings` sends the confirmation email once when status becomes Confirmed
+- [x] `POST /api/bookings/manage/[token]/cancel`, `POST /api/bookings/resend-link`
+- [x] `/book` page (with "lost your link" form), `/booking/[token]` manage page (noindex)
+- [x] Services "Book Now on Instagram" -> "Book Session" linking to `/book?package=...`
+- [x] Admin settings field for payment instructions
+
+Pending (needs you):
+- [ ] Run the migration in Neon (SQL Editor -> paste `drizzle/0007_booking_manage_flow.sql` -> Run)
+- [ ] Add `RESEND_API_KEY`, `EMAIL_FROM`, `NEXT_PUBLIC_SITE_URL` to the v0 project Vars
+- [ ] End-to-end test: book -> email -> manage page -> admin confirm -> confirmation email -> cancel
+
 ## 1. Goal
 
 Replace the "Book Now on Instagram" flow with a self-serve booking flow:

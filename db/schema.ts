@@ -46,6 +46,11 @@ export const bookings = pgTable('bookings', {
 	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 	updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 	idempotency_key: text('idempotency_key').unique(),
+	manage_token: text('manage_token').unique(),
+	confirmed_at: timestamp('confirmed_at', { withTimezone: true }),
+	cancelled_at: timestamp('cancelled_at', { withTimezone: true }),
+	cancelled_by: text('cancelled_by'),
+	confirmation_email_sent_at: timestamp('confirmation_email_sent_at', { withTimezone: true }),
 })
 
 export const testimonials = pgTable('testimonials', {
@@ -73,6 +78,7 @@ export const siteSettings = pgTable('site_settings', {
 	max_concurrent_bookings: integer('max_concurrent_bookings').notNull().default(10),
 	hero_label: text('hero_label'),
 	portfolio_view: text('portfolio_view'),
+	payment_instructions: text('payment_instructions'),
 	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 	updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

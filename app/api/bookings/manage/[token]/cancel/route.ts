@@ -1,7 +1,7 @@
 import { pool } from "@/lib/db";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { canClientCancel } from "@/lib/booking-status";
-import { adminNotificationEmail, getSiteUrl, sendEmail } from "@/lib/email";
+import { adminNotificationEmail, bookingCancelledEmail, getSiteUrl, manageUrl, sendEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -45,6 +45,20 @@ export async function POST(
       .query("SELECT booking_email FROM site_settings LIMIT 1")
       .then((r) => r.rows[0] ?? {})
       .catch(() => ({}));
+    if (row.email && row.manage_token) {
+      const clientMessage = bookingCancelledEmail({
+        clientName: row.client_name,
+        packageName: row.package_name ?? "",
+        preferredDate: row.preferred_date,
+        link: manageUrl(getSiteUrl(request), row.manage_token),
+        cancelledBy: "client",
+      });
+      await sendEmail({
+        to: row.email,
+        ...clientMessage,
+        idempotencyKey: `booking-cancelled-${row.id}`,
+      });
+    }
     if (settings.booking_email) {
       const message = adminNotificationEmail("cancelled", {
         clientName: row.client_name,

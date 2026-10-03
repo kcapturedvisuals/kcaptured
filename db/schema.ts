@@ -51,6 +51,7 @@ export const bookings = pgTable('bookings', {
 	cancelled_at: timestamp('cancelled_at', { withTimezone: true }),
 	cancelled_by: text('cancelled_by'),
 	confirmation_email_sent_at: timestamp('confirmation_email_sent_at', { withTimezone: true }),
+	cancellation_email_sent_at: timestamp('cancellation_email_sent_at', { withTimezone: true }),
 })
 
 export const testimonials = pgTable('testimonials', {

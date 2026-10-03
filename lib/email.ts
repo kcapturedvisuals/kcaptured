@@ -109,6 +109,20 @@ ${button(data.link, 'Manage your booking')}
   return { subject, html, text }
 }
 
+export function bookingCancelledEmail(data: BookingEmailData & { cancelledBy?: 'admin' | 'client' }) {
+  const subject = 'Update to your booking request'
+  const cancelledBy = data.cancelledBy === 'client' ? 'Your booking was cancelled as requested.' : 'Your booking request was cancelled by the studio.'
+  const html = layout(
+    'Booking cancelled',
+    `<p>Hi ${escapeHtml(data.clientName)}, ${cancelledBy}</p>
+${summary(data.packageName, data.preferredDate)}
+<p>If you still need a session, you can submit a new request at any time.</p>
+${button(data.link, 'View booking details')}`,
+  )
+  const text = `Hi ${data.clientName}, ${cancelledBy} ${data.packageName || 'Session'} on ${formatSessionDate(data.preferredDate)}. View details: ${data.link}`
+  return { subject, html, text }
+}
+
 export function bookingConfirmedEmail(data: BookingEmailData & { paymentInstructions: string }) {
   const subject = 'Your session is confirmed'
   const paymentHtml = escapeHtml(data.paymentInstructions).replace(/\n/g, '<br>')

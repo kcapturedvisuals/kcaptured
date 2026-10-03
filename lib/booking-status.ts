@@ -1,6 +1,7 @@
 export type BookingStatusValue = 'pending' | 'to_confirm' | 'confirmed' | 'cancelled'
 
 export const CANCELLATION_CUTOFF_HOURS = 24
+export const MANAGE_LINK_TTL_HOURS = 6
 
 export const DEFAULT_PAYMENT_INSTRUCTIONS =
   'A $20 deposit is required to hold your date, with the remaining balance due on the day of your session. We accept cash, Cash App ($Kenstevens2), and Zelle (kenny.stevens13@hotmail.com). Please include your name and session date with your payment.'

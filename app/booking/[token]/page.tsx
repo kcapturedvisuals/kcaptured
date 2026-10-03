@@ -8,6 +8,7 @@ import { pool } from '@/lib/db'
 import {
   CANCELLATION_POLICY,
   DEFAULT_PAYMENT_INSTRUCTIONS,
+  MANAGE_LINK_TTL_HOURS,
   canClientCancel,
   clientStatusLabel,
   formatSessionDate,
@@ -44,6 +45,8 @@ export default async function ManageBookingPage({ params }: { params: Promise<{ 
   const data = await getBooking(token)
   if (!data) notFound()
   const { booking, settings } = data
+  const expiresAt = new Date(booking.request_date).getTime() + MANAGE_LINK_TTL_HOURS * 60 * 60 * 1000
+  if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) notFound()
   const status = String(booking.status)
   const cancel = canClientCancel(status, booking.preferred_date)
   const contactEmail = settings.booking_email || settings.email

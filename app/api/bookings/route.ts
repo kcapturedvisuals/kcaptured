@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { DEFAULT_PAYMENT_INSTRUCTIONS, isBookingStatus } from "@/lib/booking-status";
 import {
   adminNotificationEmail,
+  bookingCancelledEmail,
   bookingConfirmedEmail,
   bookingReceivedEmail,
   getSiteUrl,
@@ -94,6 +95,30 @@ async function sendReceivedEmails(row: any, siteUrl: string, notifyAdmin: boolea
     );
   }
   await Promise.allSettled(tasks);
+}
+
+async function sendCancellationOnce(row: any, siteUrl: string, cancelledBy: 'admin' | 'client') {
+  if (!row.email || !row.manage_token) return
+  const claim = await pool.query(
+    "UPDATE bookings SET cancellation_email_sent_at = now() WHERE id = $1 AND cancellation_email_sent_at IS NULL RETURNING id",
+    [row.id],
+  )
+  if (!claim.rows[0]) return
+  const settings = await getStudioSettings()
+  const message = bookingCancelledEmail({
+    clientName: row.client_name,
+    packageName: row.package_name ?? '',
+    preferredDate: row.preferred_date,
+    link: manageUrl(siteUrl, row.manage_token),
+    cancelledBy,
+  })
+  const result = await sendEmail({
+    to: row.email,
+    ...message,
+    replyTo: settings.booking_email || settings.email || null,
+    idempotencyKey: `booking-cancelled-${row.id}`,
+  })
+  if (!result.ok) await pool.query("UPDATE bookings SET cancellation_email_sent_at = NULL WHERE id = $1", [row.id])
 }
 
 async function sendConfirmationOnce(row: any, siteUrl: string) {
@@ -268,6 +293,7 @@ export async function PATCH(request: Request) {
     const row = result.rows[0];
     if (!row) return json({ error: "Booking not found" }, 404);
     if (body.status === "confirmed") await sendConfirmationOnce(row, getSiteUrl(request));
+    if (body.status === "cancelled") await sendCancellationOnce(row, getSiteUrl(request), "admin");
     return json({ booking: mapRow(row) });
   } catch (error) {
     console.error("[bookings][PATCH] error", error);

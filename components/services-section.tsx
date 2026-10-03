@@ -5,7 +5,7 @@ import type { Service } from '@/lib/services-data';
 import { Grid, List } from 'lucide-react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { BookingForm } from '@/components/booking-form';
+import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
 import { optimizeCloudinaryUrl } from '@/lib/utils';
 
@@ -16,8 +16,6 @@ export function ServicesSection() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [displayMode, setDisplayMode] = useState<'grid' | 'list'>('list');
-  const [bookingOpen, setBookingOpen] = useState(false);
-  const [selectedPackage, setSelectedPackage] = useState('');
   const { scrollYProgress } = useScroll({
     target: sectionRef,
     offset: ['start end', 'start start'],
@@ -279,13 +277,12 @@ export function ServicesSection() {
                       </ul>
 
                       <Button
+                        asChild
                         className={isList ? 'w-full md:w-auto px-6 py-3 text-sm font-semibold' : 'w-full px-3 py-2 text-xs font-semibold sm:px-4'}
-                        onClick={() => {
-                          setSelectedPackage(service.name)
-                          setBookingOpen(true)
-                        }}
                       >
-                        Book Now on Instagram
+                        <Link href={`/book?package=${encodeURIComponent(service.name)}`}>
+                          Book Session
+                        </Link>
                       </Button>
                     </div>
 
@@ -308,8 +305,6 @@ export function ServicesSection() {
           })}
         </motion.div>
       </div>
-
-      <BookingForm isOpen={bookingOpen} initialPackage={selectedPackage} onClose={() => setBookingOpen(false)} onSaved={() => setBookingOpen(false)} />
     </motion.section>
   );
 }

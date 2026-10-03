@@ -1,4 +1,6 @@
+import { randomUUID } from 'crypto'
 import { CANCELLATION_POLICY, formatSessionDate } from '@/lib/booking-status'
+import { pool } from '@/lib/db'
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails'
 const DEFAULT_FROM = 'KCAPTURED Studios <bookings@mail.kcapturedstudio.com>'
@@ -12,10 +14,24 @@ interface SendEmailInput {
   replyTo?: string | null
 }
 
+async function logEmailEvent(action: string, description: string, entityId?: string | null, actor = 'system') {
+  try {
+    await pool.query(
+      `INSERT INTO audit_logs (id, action, entity_type, entity_id, description, actor)
+       VALUES ($1, $2, 'email', $3, $4, $5)`,
+      [randomUUID(), action, entityId ?? null, description.slice(0, 2000), actor],
+    )
+  } catch (error) {
+    console.error('[email] failed to write delivery log', error)
+  }
+}
+
 export async function sendEmail({ to, subject, html, text, idempotencyKey, replyTo }: SendEmailInput) {
   const apiKey = process.env.RESEND_API_KEY
+  const entityId = idempotencyKey ?? null
   if (!apiKey) {
     console.error('[email] RESEND_API_KEY is not set; skipping email', { subject })
+    await logEmailEvent('email_skipped', `Missing RESEND_API_KEY for ${subject} to ${to}`, entityId)
     return { ok: false as const, error: 'missing_api_key' }
   }
   try {
@@ -38,11 +54,15 @@ export async function sendEmail({ to, subject, html, text, idempotencyKey, reply
     if (!response.ok) {
       const detail = await response.text()
       console.error('[email] Resend rejected email', { status: response.status, detail })
+      await logEmailEvent('email_rejected', `Resend rejected ${subject} to ${to}: ${detail}`, entityId)
       return { ok: false as const, error: detail }
     }
-    return { ok: true as const }
+    const result = (await response.json().catch(() => ({}))) as { id?: string }
+    await logEmailEvent('email_sent', `${subject} sent to ${to}${result.id ? ` (Resend ID: ${result.id})` : ''}`, entityId)
+    return { ok: true as const, id: result.id }
   } catch (error) {
     console.error('[email] Resend request failed', error)
+    await logEmailEvent('email_failed', `Request failed for ${subject} to ${to}: ${error instanceof Error ? error.message : 'unknown error'}`, entityId)
     return { ok: false as const, error: 'request_failed' }
   }
 }

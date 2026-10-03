@@ -43,7 +43,7 @@ export async function sendEmail({ to, subject, html, text, idempotencyKey, reply
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM || DEFAULT_FROM,
+        from: process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || DEFAULT_FROM,
         to: [to],
         subject,
         html,
@@ -68,7 +68,7 @@ export async function sendEmail({ to, subject, html, text, idempotencyKey, reply
 }
 
 export function getSiteUrl(request?: Request) {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '')
+  const configured = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL)?.replace(/\/+$/, '')
   if (configured) return configured
   if (request) return new URL(request.url).origin
   return 'https://kcapturedstudio.com'

@@ -16,9 +16,9 @@ Implemented:
 - [x] `/book` page (with "lost your link" form), `/booking/[token]` manage page (noindex)
 - [x] Services "Book Now on Instagram" -> "Book Session" linking to `/book?package=...`
 - [x] Admin settings field for payment instructions
+- [x] Applied `drizzle/0007_booking_manage_flow.sql` to the database configured by `.env.local`
 
 Pending (needs you):
-- [ ] Run the migration in Neon (SQL Editor -> paste `drizzle/0007_booking_manage_flow.sql` -> Run)
 - [ ] Add `RESEND_API_KEY`, `EMAIL_FROM`, `NEXT_PUBLIC_SITE_URL` to the v0 project Vars
 - [ ] End-to-end test: book -> email -> manage page -> admin confirm -> confirmation email -> cancel
 
@@ -66,7 +66,7 @@ Status values: reuse the existing ones used by the admin (Pending, To Confirm, C
 ### 3.2 Email (Resend)
 
 - Add `resend` package, `lib/email.ts` with a single `sendEmail()` helper.
-- Env vars: `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `K Captured <bookings@mail.yourdomain.com>`), `NEXT_PUBLIC_SITE_URL` (to build links).
+- Env vars: `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `K Captured <bookings@mail.yourdomain.com>`), `NEXT_PUBLIC_SITE_URL` (to build links). The app also accepts `RESEND_FROM_EMAIL` and `NEXT_PUBLIC_APP_URL` as aliases.
 - Two templates (React Email or plain HTML strings, kept in `lib/email-templates.ts`):
   1. **Booking received**: summary, "Manage your booking" button -> `/booking/{token}`.
   2. **Booking confirmed**: date/package, payment directions (text configurable from admin settings later; hardcoded placeholder first), manage link.

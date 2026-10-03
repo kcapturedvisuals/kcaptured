@@ -1,6 +1,8 @@
 -- Booking self-service flow: manage links, lifecycle timestamps, payment instructions.
 -- Safe to run more than once.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS manage_token text;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmed_at timestamptz;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;

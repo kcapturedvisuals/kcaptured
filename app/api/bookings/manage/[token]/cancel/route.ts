@@ -1,7 +1,7 @@
 import { pool } from "@/lib/db";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { canClientCancel } from "@/lib/booking-status";
-import { adminNotificationEmail, bookingCancelledEmail, getSiteUrl, manageUrl, sendEmail } from "@/lib/email";
+import { adminNotificationEmail, bookingCancelledEmail, clientDashboardUrl, getAdminUrl, getSiteUrl, sendEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -50,14 +50,20 @@ export async function POST(
         clientName: row.client_name,
         packageName: row.package_name ?? "",
         preferredDate: row.preferred_date,
-        link: manageUrl(getSiteUrl(request), row.manage_token),
+        link: clientDashboardUrl(getSiteUrl(request), row.email),
         cancelledBy: "client",
       });
-      await sendEmail({
+      const delivery = await sendEmail({
         to: row.email,
         ...clientMessage,
         idempotencyKey: `booking-cancelled-${row.id}`,
       });
+      if (delivery.ok) {
+        await pool.query(
+          'UPDATE bookings SET cancellation_email_sent_at = COALESCE(cancellation_email_sent_at, now()) WHERE id = $1',
+          [row.id],
+        );
+      }
     }
     if (settings.booking_email) {
       const message = adminNotificationEmail("cancelled", {
@@ -66,7 +72,7 @@ export async function POST(
         phone: row.phone ?? "",
         packageName: row.package_name ?? "",
         preferredDate: row.preferred_date,
-        adminUrl: `${getSiteUrl(request)}/admin`,
+        adminUrl: `${getAdminUrl()}/admin`,
       });
       await sendEmail({
         to: settings.booking_email,

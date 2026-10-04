@@ -3,22 +3,35 @@
 ## 0. Decisions and implementation status
 
 Decisions:
-- Domain: `kcapturedstudio.com`. Sending address `bookings@mail.kcapturedstudio.com` (override with `EMAIL_FROM`).
+- Domain: `kcapturedstudio.com`. Sending address is configured with `EMAIL_FROM` or `RESEND_FROM_EMAIL`.
 - Payment directions: editable in Admin > Settings > "Payment Instructions". Falls back to the FAQ deposit/Cash App/Zelle copy when empty.
 - Cancellation: per the FAQ, deposits are non-refundable. Clients can self-cancel until 24 hours before the session; after that the page tells them to email the studio.
 
 Implemented:
 - [x] Migration `drizzle/0007_booking_manage_flow.sql` + `db/schema.ts` (manage_token, confirmed_at, cancelled_at, cancelled_by, confirmation_email_sent_at; `site_settings.payment_instructions`)
 - [x] `lib/email.ts` (Resend REST API, idempotency keys, templates) and `lib/booking-status.ts`
-- [x] `POST /api/bookings` creates token + sends "received" email + admin notification
+- [x] `POST /api/bookings` creates token + sends the client "received" email
 - [x] `PATCH /api/bookings` sends the confirmation email once when status becomes Confirmed
 - [x] `POST /api/bookings/manage/[token]/cancel`, `POST /api/bookings/resend-link`
 - [x] `/book` page (with "lost your link" form), `/booking/[token]` manage page (noindex)
+- [x] Client dashboard magic links show all bookings, allow eligible cancellations, and provide the Google review link
+- [x] Confirmation email includes the snapshotted package total, $20 deposit, balance, payment steps, and configured payment options
+- [x] Dashboard magic links and sessions expire after 24 hours
 - [x] Services "Book Now on Instagram" -> "Book Session" linking to `/book?package=...`
 - [x] Admin settings field for payment instructions
+- [x] Admin dashboard booking creation uses the same server-validated booking endpoint, captures the package price, and returns the created booking to refresh the admin list
+- [x] Validate and normalize text, email, phone, URL, numeric, status, and upload metadata at first-party form/API boundaries
+- [x] Route the contact form through a bounded, rate-limited server handler before forwarding to Formspree
+- [x] Applied `drizzle/0007_booking_manage_flow.sql` to the database configured by `.env.local`
+- [x] Mask the submitted email on the booking success message; do not persist booking form data in browser storage
+- [x] Limit resend-link emails to two requests per email address per rolling 24 hours
+- [x] Stop sending new-booking notification emails to admins
+- [x] Redact recipient addresses from email-delivery audit logs
+- [x] Applied `drizzle/0009_booking_link_rate_limits.sql` and `drizzle/0010_redact_email_audit_addresses.sql` to the database configured by `.env.local`
+- [x] Applied `drizzle/0011_booking_price_snapshot.sql` to snapshot existing and new booking prices
+- [x] Keep admin auth tokens in an HttpOnly cookie instead of browser-readable storage
 
 Pending (needs you):
-- [ ] Run the migration in Neon (SQL Editor -> paste `drizzle/0007_booking_manage_flow.sql` -> Run)
 - [ ] Add `RESEND_API_KEY`, `EMAIL_FROM`, `NEXT_PUBLIC_SITE_URL` to the v0 project Vars
 - [ ] End-to-end test: book -> email -> manage page -> admin confirm -> confirmation email -> cancel
 
@@ -28,9 +41,9 @@ Replace the "Book Now on Instagram" flow with a self-serve booking flow:
 
 1. Client clicks **Book Session** and lands on `/book`.
 2. Client fills the booking form and sees a success message: "Check your email for a link to manage your booking."
-3. Resend emails a unique manage link to the address they entered.
-4. The link opens `/booking/[token]`, where the client sees their booking details and status (Pending, Verified/Confirmed, Cancelled). They can cancel from here.
-5. When the admin approves the booking, the client gets a confirmation email with payment directions.
+3. Resend emails one secure dashboard sign-in link to the address they entered.
+4. The link opens `/dashboard`, where the client sees all bookings and their statuses, can cancel eligible bookings, and can leave a Google review. Links expire after 24 hours.
+5. When the admin approves the booking, the client gets a confirmation email with the package total, deposit/balance, payment steps, and payment options.
 
 ## 2. Current state (what exists)
 
@@ -45,9 +58,11 @@ Gap: no public way for a client to view or cancel, and no email sending.
 
 ## 3. Architecture
 
-### 3.1 Data changes (one migration, `drizzle/0006_booking_manage_token.sql`)
+### 3.1 Data changes
 
-Add to `bookings`:
+Booking lifecycle fields are added by `drizzle/0007_booking_manage_flow.sql`; `drizzle/0011_booking_price_snapshot.sql` stores the package price at request time so later catalog edits do not change a client's quoted amount. A booking dashboard link encrypts its email/expiry claim and expires after 24 hours. The resend quota stores only an HMAC of the normalized email.
+
+Booking fields:
 
 | Column | Type | Purpose |
 | --- | --- | --- |
@@ -55,6 +70,7 @@ Add to `bookings`:
 | `confirmed_at` | timestamptz null | When admin approved |
 | `cancelled_at` | timestamptz null | When client or admin cancelled |
 | `confirmation_email_sent_at` | timestamptz null | Prevents duplicate confirmation emails |
+| `package_price` | integer null | Package price snapshot at the time of the booking request |
 
 Backfill existing rows with generated tokens. Update `db/schema.ts` to match.
 
@@ -66,10 +82,9 @@ Status values: reuse the existing ones used by the admin (Pending, To Confirm, C
 ### 3.2 Email (Resend)
 
 - Add `resend` package, `lib/email.ts` with a single `sendEmail()` helper.
-- Env vars: `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `K Captured <bookings@mail.yourdomain.com>`), `NEXT_PUBLIC_SITE_URL` (to build links).
-- Two templates (React Email or plain HTML strings, kept in `lib/email-templates.ts`):
-  1. **Booking received**: summary, "Manage your booking" button -> `/booking/{token}`.
-  2. **Booking confirmed**: date/package, payment directions (text configurable from admin settings later; hardcoded placeholder first), manage link.
+- Env vars: `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `K Captured <bookings@mail.yourdomain.com>`), `NEXT_PUBLIC_SITE_URL` (to build links). The app also accepts `RESEND_FROM_EMAIL` and `NEXT_PUBLIC_APP_URL` as aliases.
+- Booking-received and cancellation emails link to the shared client dashboard.
+- Confirmation email includes the snapshotted package amount, $20 deposit, calculated remaining balance, payment steps, and payment options from Admin > Settings (or the FAQ fallback).
 - Use Resend idempotency keys (`booking-received-{id}`, `booking-confirmed-{id}`) so retries do not double-send.
 - Send from the server after the DB write. If sending fails, the booking still succeeds; log the error and expose a "resend link" option (see 3.4).
 
@@ -78,8 +93,9 @@ Status values: reuse the existing ones used by the admin (Pending, To Confirm, C
 | Route | Type | Purpose |
 | --- | --- | --- |
 | `/book` | Server page + client form | Full-page booking form (reuse the fields/validation of `booking-form.tsx`, refactored into a shared `BookingFormFields`). Accepts `?package=` to preselect. On success shows the "check your email" message. |
-| `/booking/[token]` | Server component | Looks up booking by token, shows details, status badge with timeline, Cancel button, and payment directions once confirmed. Returns not-found for bad tokens. `noindex`. |
-| `/booking/lookup` (optional) | Page | "Lost your link?" enter email and the link is re-sent. Always responds with the same message regardless of whether the email exists. |
+| `/dashboard/access/[token]` | Route handler | Validates a 24-hour encrypted email sign-in link and sets an HttpOnly client dashboard cookie. |
+| `/dashboard` | Server page | Shows all bookings for the authenticated email, supports eligible cancellations, payment information for confirmed sessions, and a Google review link. `noindex`. |
+| `/booking/[token]` | Server component | Legacy per-booking manage page for previously issued links. |
 
 Changes to existing UI:
 - `services-section.tsx` and the hero/nav CTA: relabel to "Book a Session" and link to `/book` (with `?package=`) instead of opening the modal or Instagram. Remove the modal usage once `/book` is live.
@@ -88,10 +104,10 @@ Changes to existing UI:
 
 All as Node runtime route handlers under `app/api`:
 
-- `POST /api/bookings` (existing, modified): validate, generate `manage_token`, insert, send "received" email, return `{ ok: true }` only. The token is NOT returned in the response, so only the inbox owner can reach the manage page (this is what proves the email is theirs).
-- `GET /api/bookings/manage/[token]`: returns the safe public fields (no phone/notes of other users, no internal ids).
+- `POST /api/bookings` (existing, modified): validate, snapshot the current package price, insert, and email a client dashboard sign-in link.
 - `POST /api/bookings/manage/[token]/cancel`: sets Cancelled + `cancelled_at`; only allowed while Pending/To Confirm/Confirmed and before the session date. Optionally notifies admin by email.
-- `POST /api/bookings/resend-link`: takes email, re-sends links for that email's active bookings; constant response.
+- `POST /api/bookings/resend-link`: takes email, emails one dashboard sign-in link when the address has bookings; constant response and maximum two requests per email per rolling 24 hours.
+- `POST /api/client-dashboard/bookings/[id]/cancel`: cancels only a booking owned by the authenticated dashboard email.
 - `PATCH /api/bookings` (existing, admin): when status changes to Confirmed, set `confirmed_at`, send "confirmed" email once (guarded by `confirmation_email_sent_at`). Existing admin auth stays as is.
 
 Optional: Vercel Cron to remind clients of upcoming sessions or expire stale pending bookings (not in v1).

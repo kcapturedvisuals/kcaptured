@@ -1,24 +1,34 @@
-import { verifyUploadToken } from '@/lib/auth-utils'
+import { verifyUploadRequest } from '@/lib/auth-utils'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
 import { pool } from '@/lib/db'
+import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
 
 export const runtime = 'nodejs'
 
 export async function PATCH(request: Request) {
   const ip = getClientIp(request)
   const userAgent = request.headers.get('user-agent') ?? 'unknown'
-  const authHeader = request.headers.get('authorization') ?? ''
-  const token = authHeader.replace(/^Bearer\s+/i, '')
   const uploadSource = request.headers.get('x-upload-source')
 
-  if (!token || uploadSource !== 'kc-upload' || !verifyUploadToken(token)) {
+  if (!(await verifyUploadRequest(request))) {
     await appendUploadLog({ type: 'upload_error', error: 'Unauthorized portfolio update', uploadSource: uploadSource ?? 'missing', ip, userAgent })
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
   }
 
   try {
-    const body = await request.json()
-    const { id, category, caption, featured, active, title } = body as any
+    const body = await readJsonBody(request)
+    if (!isRecord(body)) return new Response(JSON.stringify({ error: 'Invalid portfolio item' }), { status: 400 })
+    if (['id', 'category', 'caption', 'title'].some((field) => body[field] != null && typeof body[field] !== 'string'))
+      return new Response(JSON.stringify({ error: 'Portfolio text fields must be strings' }), { status: 400 })
+    const id = sanitizeText(body.id)
+    const category = body.category === undefined ? undefined : sanitizeText(body.category)
+    const caption = body.caption === undefined ? undefined : sanitizeText(body.caption)
+    const title = body.title === undefined ? undefined : sanitizeText(body.title)
+    const { featured, active } = body
+    if (!id || id.length > 120 || (category?.length ?? 0) > 80 || (caption?.length ?? 0) > 2000 || (title?.length ?? 0) > 160)
+      return new Response(JSON.stringify({ error: 'One or more portfolio fields are invalid or too long' }), { status: 400 })
+    if ((featured !== undefined && typeof featured !== 'boolean') || (active !== undefined && typeof active !== 'boolean'))
+      return new Response(JSON.stringify({ error: 'Featured and active must be true or false' }), { status: 400 })
 
     if (!id) {
       return new Response(JSON.stringify({ error: 'Missing id' }), { status: 400, headers: { 'Content-Type': 'application/json' } })

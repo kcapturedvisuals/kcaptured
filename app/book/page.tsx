@@ -27,8 +27,12 @@ async function getPackages() {
   }
 }
 
-export default async function BookPage({ searchParams }: { searchParams: Promise<{ package?: string }> }) {
-  const [{ package: requestedPackage }, packages] = await Promise.all([searchParams, getPackages()])
+export default async function BookPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ package?: string; dashboard?: string }>
+}) {
+  const [{ package: requestedPackage, dashboard }, packages] = await Promise.all([searchParams, getPackages()])
   const initialPackage = packages.some((item) => item.name === requestedPackage) ? requestedPackage! : ''
 
   return (
@@ -51,6 +55,11 @@ export default async function BookPage({ searchParams }: { searchParams: Promise
             Questions about deposits or cancellations? See our{' '}
             <Link href="/faq" className="text-zinc-300 underline underline-offset-4 hover:text-white">FAQ</Link>.
           </p>
+          {dashboard === 'expired' && (
+            <p role="status" className="rounded-xl border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-200">
+              That dashboard link has expired. Enter your email below to request a fresh one.
+            </p>
+          )}
           <ResendLinkForm />
         </section>
         <section className="md:w-3/5">

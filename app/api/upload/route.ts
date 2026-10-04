@@ -1,9 +1,10 @@
 import { v2 as cloudinary } from "cloudinary";
 import { appendUploadLog, getClientIp } from "@/lib/logger";
-import { verifyUploadToken } from "@/lib/auth-utils";
+import { verifyUploadRequest } from "@/lib/auth-utils";
 import db, { pool } from "@/lib/db";
 import { portfolioItems } from "@/db/schema";
 import { randomUUID } from "crypto";
+import { sanitizeText } from "@/lib/input-validation";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,7 @@ cloudinary.config({
 
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_REQUEST_SIZE = 210 * 1024 * 1024;
 
 function getAllowedCategories() {
   return (process.env.NEXT_PUBLIC_UPLOAD_CATEGORIES ?? "studio,lifestyle,event")
@@ -32,11 +34,9 @@ function normalizePortfolioCategory(value: string) {
 export async function POST(request: Request) {
   const ip = getClientIp(request);
   const userAgent = request.headers.get("user-agent") ?? "unknown";
-  const authHeader = request.headers.get("authorization") ?? "";
-  const token = authHeader.replace(/^Bearer\s+/i, "");
   const uploadSource = request.headers.get("x-upload-source");
 
-  if (!token || uploadSource !== "kc-upload" || !verifyUploadToken(token)) {
+  if (!(await verifyUploadRequest(request))) {
     await appendUploadLog({
       type: "upload_error",
       error: "Unauthorized upload request",
@@ -50,16 +50,43 @@ export async function POST(request: Request) {
     });
   }
 
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_SIZE) {
+    return new Response(JSON.stringify({ error: "Upload request is too large" }), {
+      status: 413,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const formData = await request.formData();
   const fileEntry = formData.get("file");
-  const target = String(formData.get("target") ?? "portfolio");
-  const category = String(formData.get("category") ?? "uncategorized");
-  const title = String(formData.get("title") ?? "");
-  const caption = formData.get("caption")
-    ? String(formData.get("caption"))
-    : null;
+  const safeFileName = fileEntry instanceof File ? sanitizeText(fileEntry.name).slice(0, 255) : undefined;
+  const targetEntry = formData.get("target");
+  const categoryEntry = formData.get("category");
+  const titleEntry = formData.get("title");
+  const captionEntry = formData.get("caption");
+  if ([targetEntry, categoryEntry, titleEntry, captionEntry].some((entry) => entry != null && typeof entry !== "string")) {
+    return new Response(JSON.stringify({ error: "Upload metadata must be text" }), { status: 400 });
+  }
+  const target = sanitizeText(targetEntry ?? "portfolio");
+  const category = sanitizeText(categoryEntry ?? "uncategorized");
+  const title = sanitizeText(titleEntry ?? "");
+  const caption = sanitizeText(captionEntry) || null;
   const featured = formData.get("featured") === "true";
   const allowedCategories = getAllowedCategories();
+  const featuredEntry = formData.get("featured");
+  if (featuredEntry != null && featuredEntry !== "true" && featuredEntry !== "false") {
+    return new Response(JSON.stringify({ error: "Featured must be true or false" }), { status: 400 });
+  }
+  if (!["portfolio", "package", "testimonial"].includes(target)) {
+    return new Response(JSON.stringify({ error: "Invalid upload target" }), { status: 400 });
+  }
+  if (category.length > 80 || title.length > 160 || (caption?.length ?? 0) > 2000) {
+    return new Response(JSON.stringify({ error: "Upload metadata is too long" }), { status: 400 });
+  }
+  if (target === "portfolio" && !allowedCategories.includes(category)) {
+    return new Response(JSON.stringify({ error: "Invalid portfolio category" }), { status: 400 });
+  }
 
   const testimonialVideoMimeTypes = [
     "video/mp4",
@@ -127,7 +154,7 @@ export async function POST(request: Request) {
       await appendUploadLog({
         type: "upload_error",
         error: `Package Cloudinary upload failed: ${message}`,
-        fileName: fileEntry.name,
+        fileName: safeFileName,
         fileSize: fileEntry.size,
         fileMimeType: fileEntry.type,
         category,
@@ -149,7 +176,7 @@ export async function POST(request: Request) {
 
     await appendUploadLog({
       type: "upload_success",
-      fileName: fileEntry.name,
+      fileName: safeFileName,
       fileSize: fileEntry.size,
       fileMimeType: fileEntry.type,
       category: "package",
@@ -224,7 +251,7 @@ export async function POST(request: Request) {
       await appendUploadLog({
         type: "upload_error",
         error: `Testimonial video upload failed: ${message}`,
-        fileName: fileEntry.name,
+        fileName: safeFileName,
         fileSize: fileEntry.size,
         fileMimeType: fileEntry.type,
         category: "testimonials",
@@ -297,7 +324,7 @@ export async function POST(request: Request) {
     await appendUploadLog({
       type: "upload_error",
       error: `Invalid file type: ${fileEntry.type}`,
-      fileName: fileEntry.name,
+      fileName: safeFileName,
       fileSize: fileEntry.size,
       fileMimeType: fileEntry.type,
       category,
@@ -314,7 +341,7 @@ export async function POST(request: Request) {
     await appendUploadLog({
       type: "upload_error",
       error: `File too large: ${fileEntry.size} bytes`,
-      fileName: fileEntry.name,
+      fileName: safeFileName,
       fileSize: fileEntry.size,
       fileMimeType: fileEntry.type,
       category,
@@ -371,7 +398,7 @@ export async function POST(request: Request) {
     await appendUploadLog({
       type: "upload_error",
       error: `Cloudinary upload failed: ${message}`,
-      fileName: fileEntry.name,
+      fileName: safeFileName,
       fileSize: fileEntry.size,
       fileMimeType: fileEntry.type,
       category: normalizedCategory,
@@ -391,7 +418,7 @@ export async function POST(request: Request) {
     await appendUploadLog({
       type: "upload_error",
       error: "Cloudinary did not return a secure URL",
-      fileName: fileEntry.name,
+      fileName: safeFileName,
       fileSize: fileEntry.size,
       fileMimeType: fileEntry.type,
       category: normalizedCategory,
@@ -406,7 +433,7 @@ export async function POST(request: Request) {
 
   await appendUploadLog({
     type: "upload_success",
-    fileName: fileEntry.name,
+    fileName: safeFileName,
     fileSize: fileEntry.size,
     fileMimeType: fileEntry.type,
     category: normalizedCategory,
@@ -454,7 +481,7 @@ export async function POST(request: Request) {
     await appendUploadLog({
       type: "upload_error",
       error: `Database insert failed: ${message}`,
-      fileName: fileEntry.name,
+      fileName: safeFileName,
       fileSize: fileEntry.size,
       fileMimeType: fileEntry.type,
       category: normalizedCategory,

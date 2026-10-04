@@ -1,25 +1,25 @@
-import { verifyUploadToken } from '@/lib/auth-utils'
+import { verifyUploadRequest } from '@/lib/auth-utils'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
 import { pool } from '@/lib/db'
+import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: Request) {
   const ip = getClientIp(request)
   const userAgent = request.headers.get('user-agent') ?? 'unknown'
-  const authHeader = request.headers.get('authorization') ?? ''
-  const token = authHeader.replace(/^Bearer\s+/i, '')
   const uploadSource = request.headers.get('x-upload-source')
 
-  if (!token || uploadSource !== 'kc-upload' || !verifyUploadToken(token)) {
+  if (!(await verifyUploadRequest(request))) {
     await appendUploadLog({ type: 'upload_error', error: 'Unauthorized package delete', uploadSource: uploadSource ?? 'missing', ip, userAgent })
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
   }
 
   try {
-    const body = await request.json()
-    const { id } = body as any
-    if (!id) return new Response(JSON.stringify({ error: 'Missing id' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    const body = await readJsonBody(request)
+    if (!isRecord(body) || typeof body.id !== 'string') return new Response(JSON.stringify({ error: 'Missing id' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    const id = sanitizeText(body.id)
+    if (!id || id.length > 120) return new Response(JSON.stringify({ error: 'Invalid package id' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
 
     await pool.query('DELETE FROM packages WHERE id = $1', [id])
 

@@ -1,27 +1,27 @@
-import { verifyUploadToken } from '@/lib/auth-utils'
+import { verifyUploadRequest } from '@/lib/auth-utils'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
 import { pool } from '@/lib/db'
+import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: Request) {
   const ip = getClientIp(request)
   const userAgent = request.headers.get('user-agent') ?? 'unknown'
-  const authHeader = request.headers.get('authorization') ?? ''
-  const token = authHeader.replace(/^Bearer\s+/i, '')
   const uploadSource = request.headers.get('x-upload-source')
 
-  if (!token || uploadSource !== 'kc-upload' || !verifyUploadToken(token)) {
+  if (!(await verifyUploadRequest(request))) {
     await appendUploadLog({ type: 'upload_error', error: 'Unauthorized portfolio reorder', uploadSource: uploadSource ?? 'missing', ip, userAgent })
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
   }
 
   try {
-    const body = await request.json()
-    const { ids } = body as { ids?: string[] }
-    if (!Array.isArray(ids) || ids.length === 0) {
+    const body = await readJsonBody(request)
+    if (!isRecord(body) || !Array.isArray(body.ids) || body.ids.length === 0 || body.ids.length > 500 ||
+      body.ids.some((id) => typeof id !== 'string' || !sanitizeText(id) || sanitizeText(id).length > 120)) {
       return new Response(JSON.stringify({ error: 'Missing ids array' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
     }
+    const ids = body.ids.map((id) => sanitizeText(id))
 
     // Build CASE statement for batch update
     const cases: string[] = []

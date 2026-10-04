@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const userAgent = request.headers.get('user-agent') ?? 'unknown'
   const uploadSource = request.headers.get('x-upload-source')
 
-  if (!verifyUploadRequest(request)) {
+  if (!(await verifyUploadRequest(request))) {
     await appendUploadLog({
       type: 'upload_error',
       error: 'Unauthorized portfolio delete request',

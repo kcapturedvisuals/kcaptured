@@ -93,6 +93,19 @@ export function getSiteUrl(request?: Request) {
   return 'https://kcapturedstudio.com'
 }
 
+export function getAdminUrl() {
+  const configured = process.env.ADMIN_BASE_URL?.trim() || 'https://admin.kcapturedstudio.com'
+  let adminUrl: URL
+  try {
+    adminUrl = new URL(configured)
+  } catch {
+    throw new Error('ADMIN_BASE_URL must be a valid HTTPS URL')
+  }
+  if (adminUrl.protocol !== 'https:' || adminUrl.username || adminUrl.password)
+    throw new Error('ADMIN_BASE_URL must be a valid HTTPS URL')
+  return adminUrl.origin
+}
+
 export function clientDashboardUrl(siteUrl: string, email: string) {
   const token = createDashboardToken(email)
   return `${siteUrl}/dashboard/access/${encodeURIComponent(token)}`
@@ -200,6 +213,19 @@ ${button(link, 'Open your booking dashboard')}
 <p style="font-size:13px;color:#a1a1aa">This link expires after 24 hours. You can request another from the booking page.</p>`,
   )
   const text = `Open your KCAPTURED booking dashboard to view your booking history, manage eligible cancellations, and find the Google review link: ${link}\n\nThis link expires after 24 hours. You can request another from the booking page.`
+  return { subject, html, text }
+}
+
+export function adminPasswordResetEmail(username: string, resetUrl: string) {
+  const subject = 'Reset your KCAPTURED admin password'
+  const html = layout(
+    'Admin password reset',
+    `<p>A password reset was requested for the <strong>${escapeHtml(username)}</strong> admin account.</p>
+<p>This one-time link expires in 30 minutes and can only be used once.</p>
+${button(resetUrl, 'Reset admin password')}
+<p style="font-size:13px;color:#a1a1aa">If you did not request this, you can ignore this email. Do not forward this private link.</p>`,
+  )
+  const text = `A password reset was requested for the ${username} admin account. This one-time link expires in 30 minutes and can only be used once: ${resetUrl}\n\nIf you did not request this, ignore this email.`
   return { subject, html, text }
 }
 

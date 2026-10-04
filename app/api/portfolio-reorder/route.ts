@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   const userAgent = request.headers.get('user-agent') ?? 'unknown'
   const uploadSource = request.headers.get('x-upload-source')
 
-  if (!verifyUploadRequest(request)) {
+  if (!(await verifyUploadRequest(request))) {
     await appendUploadLog({ type: 'upload_error', error: 'Unauthorized portfolio reorder', uploadSource: uploadSource ?? 'missing', ip, userAgent })
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
   }

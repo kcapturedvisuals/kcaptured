@@ -9,7 +9,7 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function isAdmin(request: Request) {
+async function isAdmin(request: Request) {
   return verifyUploadRequest(request)
 }
 
@@ -48,7 +48,7 @@ function validate(body: unknown, partial = false) {
 
 export async function GET(request: Request) {
   try {
-    const includeDrafts = new URL(request.url).searchParams.get('includeDrafts') === 'true' && isAdmin(request)
+    const includeDrafts = new URL(request.url).searchParams.get('includeDrafts') === 'true' && await isAdmin(request)
     const result = await pool.query(`SELECT * FROM testimonials${includeDrafts ? '' : ' WHERE published = true'} ORDER BY created_at DESC`)
     return json(result.rows.map(mapRow))
   } catch (error) {
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!isAdmin(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await isAdmin(request))) return json({ error: 'Unauthorized' }, 401)
   try {
     const body = await readJsonBody(request)
     const validationError = validate(body)
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!isAdmin(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await isAdmin(request))) return json({ error: 'Unauthorized' }, 401)
   try {
     const body = await readJsonBody(request)
     if (!isRecord(body)) return json({ error: 'Invalid testimonial' }, 400)
@@ -111,7 +111,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!isAdmin(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await isAdmin(request))) return json({ error: 'Unauthorized' }, 401)
   try {
     const body = await readJsonBody(request)
     if (!isRecord(body)) return json({ error: 'Invalid testimonial' }, 400)

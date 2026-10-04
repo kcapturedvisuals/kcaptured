@@ -3,6 +3,7 @@ import { appendUploadLog, getClientIp } from '@/lib/logger'
 import { verifyUploadRequest } from '@/lib/auth-utils'
 import db, { pool } from '@/lib/db'
 import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
+import { recordAdminAuditEvent } from '@/lib/admin-audit'
 
 export const runtime = 'nodejs'
 
@@ -46,24 +47,29 @@ export async function POST(request: Request) {
       publicId = existing.rows[0]?.public_id
     }
 
+    let cloudinaryDeleted = false
     if (publicId && process.env.CLOUDINARY_API_KEY) {
       try {
-        await cloudinary.uploader.destroy(publicId, { resource_type: 'image' })
+        const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'image' })
+        cloudinaryDeleted = result.result === 'ok'
       } catch (cloudErr) {
         console.warn('[portfolio-delete] Cloudinary delete failed', cloudErr)
       }
     }
 
-    // Remove DB record when present
-    try {
-      if (id) {
-        await pool.query('DELETE FROM portfolio_items WHERE id = $1', [id])
-      } else if (publicId) {
-        await pool.query('DELETE FROM portfolio_items WHERE public_id = $1', [publicId])
-      }
-    } catch (dbErr) {
-      console.warn('[portfolio-delete] DB delete failed', dbErr)
+    const deleted = id
+      ? await pool.query('DELETE FROM portfolio_items WHERE id = $1 RETURNING id', [id])
+      : await pool.query('DELETE FROM portfolio_items WHERE public_id = $1 RETURNING id', [publicId])
+    const deletedId = deleted.rows[0]?.id as string | undefined
+    if (!deletedId && !cloudinaryDeleted) {
+      return new Response(JSON.stringify({ error: 'Portfolio item not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
     }
+    await recordAdminAuditEvent(request, {
+      action: 'deleted',
+      entityType: deletedId ? 'portfolio_items' : 'portfolio_media',
+      entityId: deletedId ?? publicId,
+      description: deletedId ? 'Deleted portfolio item' : `Deleted portfolio media asset ${publicId}`,
+    })
 
     await appendUploadLog({ type: 'upload_delete', publicId: publicId ?? id, ip, userAgent })
 

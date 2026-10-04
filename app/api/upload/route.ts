@@ -5,6 +5,7 @@ import db, { pool } from "@/lib/db";
 import { portfolioItems } from "@/db/schema";
 import { randomUUID } from "crypto";
 import { sanitizeText } from "@/lib/input-validation";
+import { recordAdminAuditEvent } from "@/lib/admin-audit";
 
 export const runtime = "nodejs";
 
@@ -185,6 +186,12 @@ export async function POST(request: Request) {
       ip,
       userAgent,
     });
+    await recordAdminAuditEvent(request, {
+      action: "created",
+      entityType: "package_media",
+      entityId: String(uploadResult.public_id),
+      description: `Uploaded package media asset ${String(uploadResult.public_id)}`,
+    });
 
     return new Response(
       JSON.stringify({
@@ -271,6 +278,13 @@ export async function POST(request: Request) {
         headers: { "Content-Type": "application/json" },
       });
     }
+
+    await recordAdminAuditEvent(request, {
+      action: "created",
+      entityType: "testimonial_media",
+      entityId: String(uploadResult.public_id),
+      description: `Uploaded testimonial media asset ${String(uploadResult.public_id)}`,
+    });
 
     return new Response(
       JSON.stringify({
@@ -502,6 +516,12 @@ export async function POST(request: Request) {
   }
 
   const persisted = Array.isArray(inserted) ? inserted[0] : inserted;
+  await recordAdminAuditEvent(request, {
+    action: "created",
+    entityType: "portfolio_items",
+    entityId: String(persisted.id),
+    description: `Uploaded portfolio item ${String(persisted.title)}`,
+  });
 
   const mapped = {
     id: persisted.id,

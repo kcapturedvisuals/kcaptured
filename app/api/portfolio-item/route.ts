@@ -2,6 +2,7 @@ import { verifyUploadRequest } from '@/lib/auth-utils'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
 import { pool } from '@/lib/db'
 import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
+import { recordAdminAuditEvent } from '@/lib/admin-audit'
 
 export const runtime = 'nodejs'
 
@@ -51,6 +52,13 @@ export async function PATCH(request: Request) {
     const sql = `UPDATE portfolio_items SET ${sets.join(', ')}, updated_at = now() WHERE id = $${idx} RETURNING *`
     const res = await pool.query(sql, values)
     const row = res?.rows?.[0]
+    if (!row) return new Response(JSON.stringify({ error: 'Portfolio item not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+    await recordAdminAuditEvent(request, {
+      action: 'edited',
+      entityType: 'portfolio_items',
+      entityId: id,
+      description: `Updated portfolio item ${row.title}`,
+    })
 
     await appendUploadLog({ type: 'upload_success', ip, userAgent })
 

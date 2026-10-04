@@ -2,6 +2,7 @@ import { verifyUploadRequest } from '@/lib/auth-utils'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
 import { pool } from '@/lib/db'
 import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
+import { recordAdminAuditEvent } from '@/lib/admin-audit'
 
 export const runtime = 'nodejs'
 
@@ -36,6 +37,11 @@ export async function POST(request: Request) {
     await pool.query('BEGIN')
     await pool.query(sql, params)
     await pool.query('COMMIT')
+    await recordAdminAuditEvent(request, {
+      action: 'edited',
+      entityType: 'packages',
+      description: `Reordered ${ids.length} packages`,
+    })
 
     await appendUploadLog({ type: 'upload_success', ip, userAgent })
 

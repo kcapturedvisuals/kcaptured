@@ -29,6 +29,8 @@ import {
   Check,
   DollarSign,
   TrendingUp,
+  ChevronLeft,
+  ChevronRight,
   LogOut,
   UserCog,
 } from "lucide-react";
@@ -544,14 +546,16 @@ function Sidebar({
   onNavigate,
   onLogout,
   showAdminTools,
+  className = "",
 }: {
   active: Section;
   onNavigate: (s: Section) => void;
   onLogout: () => void;
   showAdminTools: boolean;
+  className?: string;
 }) {
   return (
-    <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0d0d0d]">
+    <aside className={`flex w-[220px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0d0d0d] ${className}`}>
       <div className="flex items-center gap-3 border-b border-[#1a1a1a] px-5 py-5">
         <img
           src="/kcaptured-logo.png"
@@ -808,57 +812,54 @@ function DashboardPage({
         <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
           Quick Actions
         </div>
-        <div className="flex flex-wrap gap-3">
-          <Btn variant="red" onClick={() => onNavigate("portfolio")}>
-            <Plus size={13} />
+        <div className="flex flex-wrap gap-2">
+          <Btn size="xs" variant="red" className="whitespace-nowrap" onClick={() => onNavigate("portfolio")}>
+            <Plus size={12} />
             Add Portfolio Image
           </Btn>
-          <Btn onClick={() => onNavigate("packages")}>
-            <Plus size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => onNavigate("packages")}>
+            <Plus size={12} />
             Add Package
           </Btn>
-          <Btn onClick={() => onNavigate("testimonials")}>
-            <Plus size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => onNavigate("testimonials")}>
+            <Plus size={12} />
             Add Testimonial
           </Btn>
-          <Btn onClick={() => onNavigate("bookings")}>
-            <Calendar size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => onNavigate("bookings")}>
+            <Calendar size={12} />
             View Bookings
           </Btn>
-          <Btn onClick={() => setShowTrend((current) => !current)}>
-            <TrendingUp size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => setShowTrend((current) => !current)}>
+            <TrendingUp size={12} />
             {showTrend ? "Hide Trend" : "Income Trend"}
           </Btn>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6">
         <div className="flex flex-col gap-6">
-          <div
-            className="grid gap-3"
-            style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}
-          >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-6">
             {stats.map(({ label, value, sub, Icon }) => (
               <div
                 key={label}
-                className="flex flex-col gap-3 rounded border border-[#222] bg-[#141414] p-4"
+                className="flex min-w-0 flex-col gap-3 rounded border border-[#222] bg-[#141414] p-3 sm:p-4"
               >
-                <div className="flex items-start justify-between gap-1">
-                  <span className="text-[9px] font-semibold uppercase tracking-[0.15em] text-zinc-500 leading-tight">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 text-[9px] font-semibold uppercase tracking-[0.12em] leading-tight text-zinc-500 sm:tracking-[0.15em]">
                     {label}
                   </span>
                   <Icon
                     size={13}
-                    className="mt-0.5 flex-shrink-0 text-zinc-700"
+                    className="mt-0.5 shrink-0 text-zinc-700"
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div
-                    className="text-[2rem] font-bold leading-none text-white"
+                    className="break-words text-[clamp(1.125rem,4vw,2rem)] font-bold leading-tight tabular-nums text-white"
                     style={{ fontFamily: CONDENSED }}
                   >
                     {value}
                   </div>
-                  <div className="mt-1 text-[10px] text-zinc-600">{sub}</div>
+                  <div className="mt-1 break-words text-[10px] leading-snug text-zinc-600">{sub}</div>
                 </div>
               </div>
             ))}
@@ -1105,10 +1106,7 @@ function DashboardPage({
             </SectionCard>
           )}
 
-          <div
-            className="grid gap-4"
-            style={{ gridTemplateColumns: "1fr 280px" }}
-          >
+          <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
             <SectionCard title="Recent Portfolio">
               <div className="flex gap-3 overflow-x-auto p-4">
                 {portfolio.slice(0, 6).map((img) => (
@@ -1670,7 +1668,11 @@ function PortfolioPage({
           </div>
         ) : (
           <SectionCard>
-            <table className="w-full">
+            <p className="border-b border-[#1e1e1e] px-4 py-2 text-[10px] text-zinc-600">
+              Scroll or swipe sideways to view all columns.
+            </p>
+            <div role="region" aria-label="Scrollable portfolio table" tabIndex={0} className="table-scroll max-w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x">
+            <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-[#1e1e1e]">
                   {[
@@ -1783,6 +1785,7 @@ function PortfolioPage({
                 ))}
               </tbody>
             </table>
+            </div>
           </SectionCard>
         )}
       </div>
@@ -2202,7 +2205,7 @@ function PackagesPage({
           Add Package
         </Btn>
       </PageHeader>
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6">
         {packages.length === 0 ? (
           <div className="flex min-h-48 items-center justify-center rounded border border-dashed border-[#2a2a2a] text-xs uppercase tracking-[0.2em] text-zinc-600">
             No packages
@@ -3110,7 +3113,11 @@ function BookingsPage({
           </div>
         ) : (
           <SectionCard>
-            <table className="w-full">
+            <p className="border-b border-[#1e1e1e] px-4 py-2 text-[10px] text-zinc-600">
+              Scroll or swipe sideways to view all columns.
+            </p>
+            <div role="region" aria-label="Scrollable bookings table" tabIndex={0} className="table-scroll max-w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x">
+            <table className="w-full min-w-[920px]">
               <thead>
                 <tr className="border-b border-[#1e1e1e]">
                   {[
@@ -3213,6 +3220,7 @@ function BookingsPage({
                 ))}
               </tbody>
             </table>
+            </div>
           </SectionCard>
         )}
       </div>
@@ -3409,9 +3417,13 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           <SectionCard>
-            <table className="w-full">
+            <p className="border-b border-[#1e1e1e] px-4 py-2 text-[10px] text-zinc-600">
+              Scroll or swipe sideways to view all columns.
+            </p>
+            <div role="region" aria-label="Scrollable audit trail table" tabIndex={0} className="table-scroll max-w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x">
+            <table className="w-full min-w-[1120px]">
               <thead>
                 <tr className="border-b border-[#1e1e1e]">
                   {[
@@ -3486,6 +3498,7 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                 )}
               </tbody>
             </table>
+            </div>
           </SectionCard>
         </div>
 
@@ -3994,6 +4007,7 @@ export function FigmaAdmin({
   initialSection?: Section;
 }) {
   const [section, setSection] = useState<Section>(initialSection);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [portfolio, setPortfolio] = useState<PortfolioImage[]>([]);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
@@ -4189,36 +4203,19 @@ export function FigmaAdmin({
   }, []);
 
   const addAudit = (entry: Omit<AuditEntry, "id" | "datetime">) => {
-    const action =
-      entry.type === "create"
-        ? "created"
-        : entry.type === "delete"
-          ? "deleted"
-          : entry.type === "edit"
-            ? "edited"
-            : entry.type === "status"
-              ? "status_changed"
-              : entry.type;
     void fetch("/api/audit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-upload-source": "kc-upload",
-      },
-      body: JSON.stringify({
-        action,
-        entityType: entry.section,
-        description: entry.description,
-      }),
+      headers: { "x-upload-source": "kc-upload" },
+      cache: "no-store",
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Audit write failed");
-        return response.json();
+        if (!response.ok) throw new Error("Audit trail refresh failed");
+        return response.json() as Promise<AuditEntry[]>;
       })
-      .then((record) => setAudit((prev) => [record, ...prev]))
-      .catch((error) =>
-        console.error("[figma-admin] audit write failed", error),
-      );
+      .then((records) => setAudit(records))
+      .catch((error) => {
+        console.error("[figma-admin] audit trail refresh failed", error);
+        notify(`${entry.activity} saved, but the activity trail could not refresh.`);
+      });
     notify(`${entry.activity} successfully`);
   };
 
@@ -4240,6 +4237,11 @@ export function FigmaAdmin({
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
         ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+        .table-scroll { scrollbar-width: thin; scrollbar-color: #4a4a4a #101010; }
+        .table-scroll::-webkit-scrollbar { height: 8px; }
+        .table-scroll::-webkit-scrollbar-track { background: #101010; }
+        .table-scroll::-webkit-scrollbar-thumb { background: #4a4a4a; border-radius: 4px; }
+        .table-scroll::-webkit-scrollbar-thumb:hover { background: #666; }
       `}</style>
 
       <div className="flex h-screen overflow-hidden bg-[#080808] text-[#f2f2f2]">
@@ -4248,7 +4250,37 @@ export function FigmaAdmin({
           onNavigate={setSection}
           onLogout={() => void logout()}
           showAdminTools={adminRole === "super_admin"}
+          className="hidden md:flex"
         />
+        {mobileSidebarOpen && (
+          <div className="fixed inset-0 z-[60] md:hidden">
+            <button
+              type="button"
+              aria-label="Close navigation menu"
+              onClick={() => setMobileSidebarOpen(false)}
+              className="absolute inset-0 bg-black/70"
+            />
+            <Sidebar
+              active={section}
+              onNavigate={(nextSection) => {
+                setSection(nextSection);
+                setMobileSidebarOpen(false);
+              }}
+              onLogout={() => void logout()}
+              showAdminTools={adminRole === "super_admin"}
+              className="relative z-10 h-full shadow-2xl"
+            />
+          </div>
+        )}
+        <button
+          type="button"
+          aria-label={mobileSidebarOpen ? "Hide navigation menu" : "Show navigation menu"}
+          aria-expanded={mobileSidebarOpen}
+          onClick={() => setMobileSidebarOpen((open) => !open)}
+          className={`fixed top-1/2 z-[70] -translate-y-1/2 rounded-r border border-l-0 border-[#333] bg-[#151515] p-2 text-zinc-300 shadow-lg transition-[left,color] hover:text-white md:hidden ${mobileSidebarOpen ? "left-[220px]" : "left-0"}`}
+        >
+          {mobileSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {dataError && (
             <div className="border-b border-red-500/20 bg-red-500/10 px-6 py-3 text-sm text-red-300">

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { pool } from '@/lib/db'
 import { verifyUploadRequest } from '@/lib/auth-utils'
 import { isRecord, isValidIsoDate, readJsonBody, sanitizeHttpUrl, sanitizeText } from '@/lib/input-validation'
+import { recordAdminAuditEvent } from '@/lib/admin-audit'
 
 export const runtime = 'nodejs'
 
@@ -70,6 +71,12 @@ export async function POST(request: Request) {
       `INSERT INTO testimonials (id, client_name, client_role, content, testimonial_date, video_url, video_public_id, image_url, rating, published, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now()) RETURNING *`,
       [randomUUID(), sanitizeText(body.clientName), sanitizeText(body.clientRole) || null, sanitizeText(body.content), sanitizeText(body.date) || null, body.videoUrl ? sanitizeHttpUrl(body.videoUrl) : null, sanitizeText(body.videoPublicId) || null, body.imageUrl ? sanitizeHttpUrl(body.imageUrl) : null, Number(body.rating ?? 5), body.published ?? false],
     )
+    await recordAdminAuditEvent(request, {
+      action: 'created',
+      entityType: 'testimonials',
+      entityId: String(result.rows[0].id),
+      description: `Created testimonial for ${sanitizeText(body.clientName)}`,
+    })
     return json({ testimonial: mapRow(result.rows[0]) }, 201)
   } catch (error) {
     console.error('[testimonials][POST] error', error)
@@ -103,6 +110,12 @@ export async function PATCH(request: Request) {
     values.push(sanitizeText(body.id))
     const result = await pool.query(`UPDATE testimonials SET ${fields.join(', ')}, updated_at = now() WHERE id = $${values.length} RETURNING *`, values)
     if (!result.rows[0]) return json({ error: 'Testimonial not found' }, 404)
+    await recordAdminAuditEvent(request, {
+      action: 'edited',
+      entityType: 'testimonials',
+      entityId: String(result.rows[0].id),
+      description: `Updated testimonial for ${result.rows[0].client_name}`,
+    })
     return json({ testimonial: mapRow(result.rows[0]) })
   } catch (error) {
     console.error('[testimonials][PATCH] error', error)
@@ -118,6 +131,12 @@ export async function DELETE(request: Request) {
     if (typeof body.id !== 'string' || !sanitizeText(body.id) || sanitizeText(body.id).length > 120) return json({ error: 'Missing id' }, 400)
     const result = await pool.query('DELETE FROM testimonials WHERE id = $1 RETURNING id', [sanitizeText(body.id)])
     if (!result.rows[0]) return json({ error: 'Testimonial not found' }, 404)
+    await recordAdminAuditEvent(request, {
+      action: 'deleted',
+      entityType: 'testimonials',
+      entityId: String(result.rows[0].id),
+      description: 'Deleted testimonial',
+    })
     return json({ success: true })
   } catch (error) {
     console.error('[testimonials][DELETE] error', error)

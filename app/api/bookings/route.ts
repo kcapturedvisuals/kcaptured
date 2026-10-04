@@ -4,6 +4,7 @@ import { verifyUploadRequest } from "@/lib/auth-utils";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { DEFAULT_PAYMENT_INSTRUCTIONS, isBookingStatus } from "@/lib/booking-status";
 import { isRecord, isValidEmail, isValidIsoDate, readJsonBody, sanitizePhone, sanitizeText } from "@/lib/input-validation";
+import { recordAdminAuditEvent } from "@/lib/admin-audit";
 import {
   bookingCancelledEmail,
   bookingConfirmedEmail,
@@ -255,6 +256,14 @@ export async function POST(request: Request) {
         ],
       );
       const row = result.rows[0];
+      if (admin) {
+        await recordAdminAuditEvent(request, {
+          action: "created",
+          entityType: "bookings",
+          entityId: String(row.id),
+          description: `Created booking for ${clientName}`,
+        });
+      }
       const siteUrl = getSiteUrl(request);
       if (status !== "cancelled") await sendReceivedEmails(row, siteUrl);
       if (status === "confirmed") await sendConfirmationOnce(row, siteUrl);
@@ -293,6 +302,12 @@ export async function PATCH(request: Request) {
     );
     const row = result.rows[0];
     if (!row) return json({ error: "Booking not found" }, 404);
+    await recordAdminAuditEvent(request, {
+      action: "status_changed",
+      entityType: "bookings",
+      entityId: String(row.id),
+      description: `Changed booking status to ${body.status}`,
+    });
     if (body.status === "confirmed") await sendConfirmationOnce(row, getSiteUrl(request));
     if (body.status === "cancelled") await sendCancellationOnce(row, getSiteUrl(request), "admin");
     return json({ booking: mapRow(row) });
@@ -312,6 +327,12 @@ export async function DELETE(request: Request) {
       [sanitizeText(body.id)],
     );
     if (!result.rows[0]) return json({ error: "Booking not found" }, 404);
+    await recordAdminAuditEvent(request, {
+      action: "deleted",
+      entityType: "bookings",
+      entityId: String(result.rows[0].id),
+      description: "Deleted booking",
+    });
     return json({ success: true });
   } catch (error) {
     console.error("[bookings][DELETE] error", error);

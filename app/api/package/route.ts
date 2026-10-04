@@ -2,6 +2,7 @@ import { verifyUploadRequest } from '@/lib/auth-utils'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
 import { pool } from '@/lib/db'
 import { isRecord, readJsonBody, sanitizeHttpUrl, sanitizeText } from '@/lib/input-validation'
+import { recordAdminAuditEvent } from '@/lib/admin-audit'
 
 export const runtime = 'nodejs'
 
@@ -52,6 +53,12 @@ export async function POST(request: Request) {
     const params = [id, category, name, duration || null, price, JSON.stringify(features.map((feature) => sanitizeText(feature))), description || null, editedImages, sampleUrl || null, 9999, true]
     const res = await pool.query(sql, params)
     const row = res?.rows?.[0]
+    await recordAdminAuditEvent(request, {
+      action: 'created',
+      entityType: 'packages',
+      entityId: id,
+      description: `Created package ${name}`,
+    })
 
     await appendUploadLog({ type: 'upload_success', ip, userAgent })
 
@@ -137,6 +144,12 @@ export async function PATCH(request: Request) {
     const sql = `UPDATE packages SET ${sets.join(', ')}, updated_at = now() WHERE id = $${idx} RETURNING *`
     const res = await pool.query(sql, vals)
     const row = res?.rows?.[0]
+    await recordAdminAuditEvent(request, {
+      action: 'edited',
+      entityType: 'packages',
+      entityId: id,
+      description: `Updated package ${row?.name ?? id}`,
+    })
 
     await appendUploadLog({ type: 'upload_success', ip, userAgent })
 

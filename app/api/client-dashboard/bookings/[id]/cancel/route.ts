@@ -5,6 +5,7 @@ import {
   adminNotificationEmail,
   bookingCancelledEmail,
   clientDashboardUrl,
+  getAdminUrl,
   getSiteUrl,
   sendEmail,
 } from '@/lib/email'
@@ -81,7 +82,7 @@ export async function POST(
         phone: row.phone ?? '',
         packageName: row.package_name ?? '',
         preferredDate: row.preferred_date,
-        adminUrl: `${siteUrl}/admin`,
+        adminUrl: `${getAdminUrl()}/admin`,
       })
       await sendEmail({
         to: bookingEmail,

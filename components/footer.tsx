@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Mail, Lock } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Mail } from "lucide-react";
 
 // Custom Instagram Icon with brand colors
 function InstagramIcon() {
@@ -56,16 +53,10 @@ function TikTokIcon() {
   );
 }
 
-const UPLOAD_LOCK_KEY = "uploadAuthLock";
-
 export function Footer() {
   const currentYear = new Date().getFullYear();
   const [contactEmail, setContactEmail] = useState("");
   const [instagramHandle, setInstagramHandle] = useState("kcapturedvisuals");
-  const [showUploadInput, setShowUploadInput] = useState(false);
-  const [keyValue, setKeyValue] = useState("");
-  const [locked, setLocked] = useState(false);
-  const router = useRouter();
 
   useEffect(() => {
     fetch("/api/settings")
@@ -78,53 +69,7 @@ export function Footer() {
           );
       })
       .catch(() => {});
-
-    const storedLock = sessionStorage.getItem(UPLOAD_LOCK_KEY);
-    if (!storedLock) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(storedLock) as { lockedUntil: number };
-      if (parsed.lockedUntil && Date.now() < parsed.lockedUntil) {
-        setLocked(true);
-      } else {
-        sessionStorage.removeItem(UPLOAD_LOCK_KEY);
-      }
-    } catch {
-      sessionStorage.removeItem(UPLOAD_LOCK_KEY);
-    }
   }, []);
-
-  const handleKeySubmit = async () => {
-    if (!keyValue.trim() || locked) {
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/auth/validate-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: keyValue.trim() }),
-      });
-
-      if (response.ok) {
-        router.push("/admin");
-        return;
-      }
-    } catch {
-      // ignore network failures and lock on any invalid entry
-    }
-
-    const lockUntil = Date.now() + 60 * 60 * 1000;
-    sessionStorage.setItem(
-      UPLOAD_LOCK_KEY,
-      JSON.stringify({ lockedUntil: lockUntil }),
-    );
-    setLocked(true);
-    setShowUploadInput(false);
-    setKeyValue("");
-  };
 
   return (
     <footer className="bg-black text-white py-12 md:py-16">
@@ -225,50 +170,6 @@ export function Footer() {
                   >
                     <TikTokIcon />
                   </a>
-                </div>
-                <div className="flex items-center gap-2">
-                  {!locked && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowUploadInput((current) => !current)
-                        }
-                        className="text-gray-600 hover:text-white transition-colors p-1"
-                        aria-label="Enter upload key"
-                      >
-                        <Lock size={16} />
-                      </button>
-
-                      {showUploadInput && (
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="password"
-                            maxLength={256}
-                            value={keyValue}
-                            onChange={(event) =>
-                              setKeyValue(event.target.value)
-                            }
-                            placeholder="IGNORE"
-                            className="min-w-[180px] text-white"
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                handleKeySubmit();
-                              }
-                            }}
-                          />
-                          <Button
-                            size="sm"
-                            onClick={handleKeySubmit}
-                            disabled={!keyValue.trim()}
-                          >
-                            Go
-                          </Button>
-                        </div>
-                      )}
-                    </>
-                  )}
                 </div>
               </div>
             </div>

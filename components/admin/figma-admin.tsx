@@ -29,6 +29,8 @@ import {
   Check,
   DollarSign,
   TrendingUp,
+  LogOut,
+  UserCog,
 } from "lucide-react";
 
 type Section =
@@ -38,7 +40,8 @@ type Section =
   | "testimonials"
   | "bookings"
   | "trail"
-  | "settings";
+  | "settings"
+  | "admins";
 type BookingStatus = "Pending" | "To Confirm" | "Confirmed" | "Cancelled";
 type AuditType =
   | "create"
@@ -95,12 +98,15 @@ interface Booking {
 }
 
 interface AuditEntry {
-  id: number;
+  id: string;
   datetime: string;
   activity: string;
   description: string;
   section: string;
   type: AuditType;
+  actor?: string;
+  ip?: string | null;
+  country?: string | null;
   prev?: string;
   next?: string;
 }
@@ -530,14 +536,19 @@ const NAV: { id: Section; label: string; Icon: React.ElementType }[] = [
   { id: "bookings", label: "Bookings", Icon: Calendar },
   { id: "trail", label: "Trail", Icon: Shield },
   { id: "settings", label: "Settings", Icon: Settings },
+  { id: "admins", label: "Admin Access", Icon: UserCog },
 ];
 
 function Sidebar({
   active,
   onNavigate,
+  onLogout,
+  showAdminTools,
 }: {
   active: Section;
   onNavigate: (s: Section) => void;
+  onLogout: () => void;
+  showAdminTools: boolean;
 }) {
   return (
     <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0d0d0d]">
@@ -561,7 +572,7 @@ function Sidebar({
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-5">
-        {NAV.map(({ id, label, Icon }) => {
+        {NAV.filter(({ id }) => id !== "admins" || showAdminTools).map(({ id, label, Icon }) => {
           const isActive = active === id;
           return (
             <button
@@ -599,6 +610,14 @@ function Sidebar({
         <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600">
           v1.0.0
         </div>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="mt-3 flex w-full items-center gap-2 text-left text-xs text-zinc-500 transition-colors hover:text-white"
+        >
+          <LogOut size={13} />
+          Sign out
+        </button>
       </div>
     </aside>
   );
@@ -3397,10 +3416,12 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                 <tr className="border-b border-[#1e1e1e]">
                   {[
                     "Date & Time",
-                    "Activity",
-                    "Description",
-                    "Section",
-                    "Type",
+                      "Admin",
+                      "Activity",
+                      "Description",
+                      "Section",
+                      "IP / Country",
+                      "Type",
                   ].map((h) => (
                     <th
                       key={h}
@@ -3427,6 +3448,7 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                       >
                         {entry.datetime}
                       </td>
+                      <td className="px-4 py-3 text-xs text-zinc-400">{entry.actor ?? "—"}</td>
                       <td className="px-4 py-3 text-sm text-white">
                         {entry.activity}
                       </td>
@@ -3435,6 +3457,11 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                       </td>
                       <td className="px-4 py-3 text-xs text-zinc-500">
                         {entry.section}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-zinc-500 whitespace-nowrap" style={{ fontFamily: MONO }}>
+                        {entry.ip
+                          ? `${entry.ip === "::1" ? "localhost (127.0.0.1)" : entry.ip}${entry.country ? ` · ${entry.country}` : ""}`
+                          : "—"}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
@@ -3450,7 +3477,7 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                 {filtered.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="px-4 py-10 text-center text-sm text-zinc-600"
                     >
                       No activity matches your filter.
@@ -3539,6 +3566,187 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+interface AdminAccountRow {
+  id: string;
+  username: string;
+  role: "admin" | "super_admin";
+  active: boolean;
+  must_change_password: boolean;
+  failed_login_attempts: number;
+  locked_until: string | null;
+  created_at: string;
+}
+
+function AdminAccountsPage() {
+  const [accounts, setAccounts] = useState<AdminAccountRow[]>([]);
+  const [username, setUsername] = useState("");
+  const [resetUrl, setResetUrl] = useState("");
+  const [resetTarget, setResetTarget] = useState<AdminAccountRow | null>(null);
+  const [resetEmail, setResetEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadAccounts = async () => {
+    const response = await fetch("/api/auth/admins");
+    if (!response.ok) throw new Error("Could not load admin accounts.");
+    setAccounts(await response.json());
+  };
+
+  useEffect(() => {
+    loadAccounts().catch((loadError) => setError(loadError.message));
+  }, []);
+
+  const createAccount = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", username }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Could not create account.");
+      setUsername("");
+      setMessage(`Admin account ${result.username} created. The temporary password is the username; they must change it at first sign-in.`);
+      await loadAccounts();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create account.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const generateResetLink = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!resetTarget) return;
+    const email = resetEmail.trim();
+    if (email && !isValidEmail(email)) {
+      setError("Enter a valid email address or leave it blank to copy the link.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setResetUrl("");
+    try {
+      const response = await fetch("/api/auth/admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset_link", adminUserId: resetTarget.id, email }),
+      });
+      const result = await response.json() as { error?: string; resetUrl?: string; emailed?: boolean };
+      if (result.resetUrl) setResetUrl(result.resetUrl);
+      if (!response.ok) {
+        if (result.resetUrl) {
+          setResetTarget(null);
+          setResetEmail("");
+        }
+        throw new Error(result.error ?? "Could not create reset link.");
+      }
+      setMessage(result.emailed
+        ? `One-time reset link emailed for ${resetTarget.username}. It expires in 30 minutes.`
+        : `One-time reset link created for ${resetTarget.username}. Copy it below and share it privately; it expires in 30 minutes.`);
+      setResetTarget(null);
+      setResetEmail("");
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : "Could not create reset link.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyResetLink = async () => {
+    try {
+      await navigator.clipboard.writeText(resetUrl);
+      setMessage("Reset link copied. Send it only through a private channel.");
+    } catch {
+      setError("Could not copy the link. Select and copy it manually.");
+    }
+  };
+
+  return (
+    <div className="flex flex-1 flex-col overflow-y-auto p-6">
+      <PageHeader title="Admin Access" />
+      <div className="mx-auto grid w-full max-w-5xl gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <SectionCard>
+          <div className="p-5">
+            <h2 className="text-sm font-semibold text-white">Create admin</h2>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+              The username is the temporary password. New admins must replace it at first sign-in with a password of at least 12 characters.
+            </p>
+            <form onSubmit={createAccount} className="mt-5 space-y-4">
+              <FInput label="Username (also temporary password)" value={username} minLength={2} maxLength={64} autoComplete="off" onChange={(event) => setUsername(event.target.value)} required />
+              <Btn type="submit" variant="red" disabled={busy || username.trim().length < 2}>Create admin</Btn>
+            </form>
+          </div>
+        </SectionCard>
+
+        <SectionCard>
+          <div className="p-5">
+            <h2 className="text-sm font-semibold text-white">Admin accounts</h2>
+            <div className="mt-4 space-y-3">
+              {accounts.map((account) => (
+                <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[#202020] py-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{account.username}</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-widest text-zinc-500">
+                      {account.role.replace("_", " ")} · {account.must_change_password ? "temporary password" : "active credentials"}
+                      {account.locked_until && new Date(account.locked_until).getTime() > Date.now() ? " · locked" : ""}
+                    </p>
+                  </div>
+                  {account.role === "admin" && (
+                    <Btn disabled={busy} onClick={() => {
+                      setError("");
+                      setMessage("");
+                      setResetUrl("");
+                      setResetTarget(account);
+                      setResetEmail("");
+                    }}>Generate reset link</Btn>
+                  )}
+                </div>
+              ))}
+              {accounts.length === 0 && <p className="text-xs text-zinc-500">No accounts found.</p>}
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+      {(message || error) && (
+        <p role={error ? "alert" : "status"} className={`mx-auto mt-5 w-full max-w-5xl border p-3 text-sm ${error ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"}`}>
+          {error || message}
+        </p>
+      )}
+      {resetUrl && (
+        <div className="mx-auto mt-4 w-full max-w-5xl border border-amber-400/30 bg-amber-400/5 p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-amber-200">Private one-time link · expires in 30 minutes</p>
+          <input readOnly value={resetUrl} className="mt-3 h-10 w-full border border-white/10 bg-black/50 px-3 font-mono text-xs text-zinc-300" />
+          <Btn className="mt-3" onClick={() => void copyResetLink()}>Copy link</Btn>
+        </div>
+      )}
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-5" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="reset-link-title" className="w-full max-w-md border border-[#333] bg-[#101010] p-6 shadow-2xl">
+            <h2 id="reset-link-title" className="text-sm font-semibold text-white">Reset {resetTarget.username}&apos;s password</h2>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+              Enter an email address to send the one-time link. Leave it blank to generate a link here that you can copy and share privately.
+            </p>
+            <form onSubmit={generateResetLink} className="mt-5 space-y-4">
+              <FInput label="Email address (optional)" type="email" autoComplete="email" value={resetEmail} maxLength={254} onChange={(event) => setResetEmail(event.target.value)} />
+              <div className="flex justify-end gap-2">
+                <Btn disabled={busy} onClick={() => setResetTarget(null)}>Cancel</Btn>
+                <Btn type="submit" variant="red" disabled={busy}>{busy ? "Working..." : resetEmail.trim() ? "Email reset link" : "Generate copyable link"}</Btn>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -3791,6 +3999,7 @@ export function FigmaAdmin({
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [adminRole, setAdminRole] = useState<"admin" | "super_admin" | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -3801,6 +4010,18 @@ export function FigmaAdmin({
       () => setFeedback((current) => (current === message ? "" : current)),
       2800,
     );
+  };
+
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (error) {
+      console.error('[admin] failed to revoke session during sign-out', error);
+    } finally {
+      sessionStorage.removeItem('uploadToken');
+      sessionStorage.removeItem('uploadTokenExpiry');
+      window.location.assign('/login');
+    }
   };
 
   useEffect(() => {
@@ -3820,21 +4041,26 @@ export function FigmaAdmin({
           testimonialsResponse,
           bookingsResponse,
           auditResponse,
+          identityResponse,
         ] = await Promise.all([
-          fetch("/api/packages?includeInactive=true"),
+          fetch("/api/packages?includeInactive=true", {
+            headers: adminHeaders,
+          }),
           fetch("/api/portfolio-images"),
           fetch("/api/testimonials?includeDrafts=true", {
             headers: adminHeaders,
           }),
           fetch("/api/bookings", { headers: adminHeaders }),
           fetch("/api/audit", { headers: adminHeaders }),
+          fetch("/api/auth/me"),
         ]);
         if (
           !packagesResponse.ok ||
           !portfolioResponse.ok ||
           !testimonialsResponse.ok ||
           !bookingsResponse.ok ||
-          !auditResponse.ok
+          !auditResponse.ok ||
+          !identityResponse.ok
         )
           throw new Error(
             "Admin data could not be loaded. Verify your admin session.",
@@ -3846,6 +4072,7 @@ export function FigmaAdmin({
           testimonialRows,
           bookingRows,
           auditRows,
+          identity,
         ] = await Promise.all([
           packagesResponse.json(),
           portfolioResponse.json(),
@@ -3854,9 +4081,11 @@ export function FigmaAdmin({
             : Promise.resolve([]),
           bookingsResponse.ok ? bookingsResponse.json() : Promise.resolve([]),
           auditResponse.json(),
+          identityResponse.json(),
         ]);
 
         if (!mounted) return;
+        setAdminRole(identity.role === "super_admin" ? "super_admin" : "admin");
         setPackages(
           (Array.isArray(packageRows) ? packageRows : []).map((row) => ({
             id: String(row.id),
@@ -4014,7 +4243,12 @@ export function FigmaAdmin({
       `}</style>
 
       <div className="flex h-screen overflow-hidden bg-[#080808] text-[#f2f2f2]">
-        <Sidebar active={section} onNavigate={setSection} />
+        <Sidebar
+          active={section}
+          onNavigate={setSection}
+          onLogout={() => void logout()}
+          showAdminTools={adminRole === "super_admin"}
+        />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {dataError && (
             <div className="border-b border-red-500/20 bg-red-500/10 px-6 py-3 text-sm text-red-300">
@@ -4076,6 +4310,7 @@ export function FigmaAdmin({
           )}
           {section === "trail" && <AuditTrailPage audit={audit} />}
           {section === "settings" && <SettingsPage addAudit={addAudit} />}
+          {section === "admins" && adminRole === "super_admin" && <AdminAccountsPage />}
         </div>
       </div>
     </AdminFeedbackContext.Provider>

@@ -100,3 +100,44 @@ export const auditLogs = pgTable('audit_logs', {
 	actor: text('actor'),
 	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+export const adminUsers = pgTable('admin_users', {
+	id: text('id').primaryKey(),
+	username: text('username').notNull().unique(),
+	password_hash: text('password_hash').notNull(),
+	role: text('role').notNull(),
+	active: boolean('active').notNull().default(true),
+	must_change_password: boolean('must_change_password').notNull().default(true),
+	failed_login_attempts: integer('failed_login_attempts').notNull().default(0),
+	locked_until: timestamp('locked_until', { withTimezone: true }),
+	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+	updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const adminSessions = pgTable('admin_sessions', {
+	session_hash: text('session_hash').primaryKey(),
+	admin_user_id: text('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+	expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const adminLoginEvents = pgTable('admin_login_events', {
+	id: text('id').primaryKey(),
+	admin_user_id: text('admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+	username: text('username'),
+	event_type: text('event_type').notNull(),
+	outcome: text('outcome').notNull(),
+	ip_address: text('ip_address'),
+	country_code: text('country_code'),
+	user_agent: text('user_agent'),
+	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export const adminPasswordResets = pgTable('admin_password_resets', {
+	token_hash: text('token_hash').primaryKey(),
+	admin_user_id: text('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+	expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+	used_at: timestamp('used_at', { withTimezone: true }),
+	created_by_admin_id: text('created_by_admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+	created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})

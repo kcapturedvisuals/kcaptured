@@ -1,5 +1,5 @@
 import { pool } from '@/lib/db'
-import { verifyUploadRequest } from '@/lib/auth-utils'
+import { adminSessionFromRequest, verifyUploadRequest } from '@/lib/auth-utils'
 import { isRecord, isValidEmail, readJsonBody, sanitizePhone, sanitizeText } from '@/lib/input-validation'
 import { randomUUID } from 'crypto'
 
@@ -9,7 +9,7 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function isAdmin(request: Request) {
+async function isAdmin(request: Request) {
   return verifyUploadRequest(request)
 }
 
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!isAdmin(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await isAdmin(request))) return json({ error: 'Unauthorized' }, 401)
   try {
     const body = await readJsonBody(request)
     if (!isRecord(body)) return json({ error: 'Invalid settings' }, 400)
@@ -68,7 +68,9 @@ export async function PATCH(request: Request) {
     if (!['current', 'masonry'].includes(portfolioView))
       return json({ error: 'Choose a valid portfolio view' }, 400)
     const result = await pool.query(`INSERT INTO site_settings (id, studio_name, email, phone, instagram_handle, booking_email, max_concurrent_bookings, hero_label, portfolio_view, payment_instructions, created_at, updated_at) VALUES ('site-settings',$1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now()) ON CONFLICT (id) DO UPDATE SET studio_name = EXCLUDED.studio_name, email = EXCLUDED.email, phone = EXCLUDED.phone, instagram_handle = EXCLUDED.instagram_handle, booking_email = EXCLUDED.booking_email, max_concurrent_bookings = EXCLUDED.max_concurrent_bookings, hero_label = EXCLUDED.hero_label, portfolio_view = EXCLUDED.portfolio_view, payment_instructions = EXCLUDED.payment_instructions, updated_at = now() RETURNING *`, [studioName, email || null, phone || null, instagramHandle || null, bookingEmail || null, max, heroLabel, portfolioView, paymentInstructions])
-    await pool.query('INSERT INTO audit_logs (id, action, entity_type, description, actor, created_at) VALUES ($1,$2,$3,$4,$5,now())', [randomUUID(), 'settings_updated', 'Settings', 'Updated site settings', 'admin'])
+    const session = await adminSessionFromRequest(request)
+    if (!session) return json({ error: 'Unauthorized' }, 401)
+    await pool.query('INSERT INTO audit_logs (id, action, entity_type, description, actor, created_at) VALUES ($1,$2,$3,$4,$5,now())', [randomUUID(), 'settings_updated', 'Settings', 'Updated site settings', session.username])
     return json(mapRow(result.rows[0]))
   } catch (error) {
     console.error('[settings][PATCH] error', error)

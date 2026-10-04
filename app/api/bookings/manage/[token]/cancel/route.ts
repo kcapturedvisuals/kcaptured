@@ -1,7 +1,7 @@
 import { pool } from "@/lib/db";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { canClientCancel } from "@/lib/booking-status";
-import { adminNotificationEmail, bookingCancelledEmail, clientDashboardUrl, getSiteUrl, sendEmail } from "@/lib/email";
+import { adminNotificationEmail, bookingCancelledEmail, clientDashboardUrl, getAdminUrl, getSiteUrl, sendEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -72,7 +72,7 @@ export async function POST(
         phone: row.phone ?? "",
         packageName: row.package_name ?? "",
         preferredDate: row.preferred_date,
-        adminUrl: `${getSiteUrl(request)}/admin`,
+        adminUrl: `${getAdminUrl()}/admin`,
       });
       await sendEmail({
         to: settings.booking_email,

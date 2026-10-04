@@ -22,7 +22,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function isAdmin(request: Request) {
+async function isAdmin(request: Request) {
   return verifyUploadRequest(request);
 }
 
@@ -126,7 +126,7 @@ async function sendConfirmationOnce(row: any, siteUrl: string) {
 }
 
 export async function GET(request: Request) {
-  if (!isAdmin(request)) return json({ error: "Unauthorized" }, 401);
+  if (!(await isAdmin(request))) return json({ error: "Unauthorized" }, 401);
   try {
     const result = await pool.query(
       "SELECT * FROM bookings ORDER BY request_date DESC",
@@ -140,7 +140,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const admin = isAdmin(request);
+    const admin = await isAdmin(request);
     if (!admin) {
       const rate = checkRateLimit(
         `booking:${getClientIp(request)}`,
@@ -276,7 +276,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!isAdmin(request)) return json({ error: "Unauthorized" }, 401);
+  if (!(await isAdmin(request))) return json({ error: "Unauthorized" }, 401);
   try {
     const body = await readJsonBody(request);
     if (!isRecord(body) || typeof body.id !== "string" || !sanitizeText(body.id) || sanitizeText(body.id).length > 120 || !isBookingStatus(body.status))
@@ -303,7 +303,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!isAdmin(request)) return json({ error: "Unauthorized" }, 401);
+  if (!(await isAdmin(request))) return json({ error: "Unauthorized" }, 401);
   try {
     const body = await readJsonBody(request);
     if (!isRecord(body) || typeof body.id !== "string" || !sanitizeText(body.id) || sanitizeText(body.id).length > 120) return json({ error: "Missing booking id" }, 400);

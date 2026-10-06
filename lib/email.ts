@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { CANCELLATION_POLICY, formatSessionDate } from '@/lib/booking-status'
+import { createDashboardToken } from '@/lib/client-dashboard-auth'
 import { pool } from '@/lib/db'
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails'
@@ -31,7 +32,7 @@ export async function sendEmail({ to, subject, html, text, idempotencyKey, reply
   const entityId = idempotencyKey ?? null
   if (!apiKey) {
     console.error('[email] RESEND_API_KEY is not set; skipping email', { subject })
-    await logEmailEvent('email_skipped', `Missing RESEND_API_KEY for ${subject} to ${to}`, entityId)
+    await logEmailEvent('email_skipped', `Missing RESEND_API_KEY for ${subject}`, entityId)
     return { ok: false as const, error: 'missing_api_key' }
   }
   try {
@@ -43,7 +44,7 @@ export async function sendEmail({ to, subject, html, text, idempotencyKey, reply
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM || DEFAULT_FROM,
+        from: process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || DEFAULT_FROM,
         to: [to],
         subject,
         html,
@@ -53,29 +54,61 @@ export async function sendEmail({ to, subject, html, text, idempotencyKey, reply
     })
     if (!response.ok) {
       const detail = await response.text()
-      console.error('[email] Resend rejected email', { status: response.status, detail })
-      await logEmailEvent('email_rejected', `Resend rejected ${subject} to ${to}: ${detail}`, entityId)
+      console.error('[email] Resend rejected email', { status: response.status })
+      await logEmailEvent('email_rejected', `Resend rejected ${subject} (status ${response.status})`, entityId)
       return { ok: false as const, error: detail }
     }
     const result = (await response.json().catch(() => ({}))) as { id?: string }
-    await logEmailEvent('email_sent', `${subject} sent to ${to}${result.id ? ` (Resend ID: ${result.id})` : ''}`, entityId)
+    await logEmailEvent('email_sent', `${subject} sent${result.id ? ` (Resend ID: ${result.id})` : ''}`, entityId)
     return { ok: true as const, id: result.id }
   } catch (error) {
     console.error('[email] Resend request failed', error)
-    await logEmailEvent('email_failed', `Request failed for ${subject} to ${to}: ${error instanceof Error ? error.message : 'unknown error'}`, entityId)
+    await logEmailEvent('email_failed', `Request failed for ${subject}`, entityId)
     return { ok: false as const, error: 'request_failed' }
   }
 }
 
 export function getSiteUrl(request?: Request) {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '')
-  if (configured) return configured
+  const configured = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL)?.trim()
+  if (configured) {
+    const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(configured)
+      ? configured
+      : `https://${configured}`
+    let siteUrl: URL
+    try {
+      siteUrl = new URL(withProtocol)
+    } catch {
+      throw new Error('NEXT_PUBLIC_SITE_URL must be a valid HTTP or HTTPS URL')
+    }
+    if (
+      !['http:', 'https:'].includes(siteUrl.protocol) ||
+      siteUrl.username ||
+      siteUrl.password
+    ) {
+      throw new Error('NEXT_PUBLIC_SITE_URL must be a valid HTTP or HTTPS URL')
+    }
+    return siteUrl.origin
+  }
   if (request) return new URL(request.url).origin
   return 'https://kcapturedstudio.com'
 }
 
-export function manageUrl(siteUrl: string, token: string) {
-  return `${siteUrl}/booking/${encodeURIComponent(token)}`
+export function getAdminUrl() {
+  const configured = process.env.ADMIN_BASE_URL?.trim() || 'https://admin.kcapturedstudio.com'
+  let adminUrl: URL
+  try {
+    adminUrl = new URL(configured)
+  } catch {
+    throw new Error('ADMIN_BASE_URL must be a valid HTTPS URL')
+  }
+  if (adminUrl.protocol !== 'https:' || adminUrl.username || adminUrl.password)
+    throw new Error('ADMIN_BASE_URL must be a valid HTTPS URL')
+  return adminUrl.origin
+}
+
+export function clientDashboardUrl(siteUrl: string, email: string) {
+  const token = createDashboardToken(email)
+  return `${siteUrl}/dashboard/access/${encodeURIComponent(token)}`
 }
 
 function escapeHtml(value: string) {
@@ -121,11 +154,11 @@ export function bookingReceivedEmail(data: BookingEmailData) {
     `Thanks, ${data.clientName}`,
     `<p>Your booking request is in. We will review the date and email you once it is verified.</p>
 ${summary(data.packageName, data.preferredDate)}
-<p>Use the link below any time to check your booking status or cancel.</p>
-${button(data.link, 'Manage your booking')}
-<p style="font-size:13px;color:#a1a1aa">Keep this email. Anyone with this link can view and cancel this booking.</p>`,
+<p>Use your private dashboard link to see your booking history, check your booking status, or manage cancellations.</p>
+${button(data.link, 'Open your booking dashboard')}
+<p style="font-size:13px;color:#a1a1aa">This private link gives access to bookings for this email address and expires after 24 hours.</p>`,
   )
-  const text = `Thanks, ${data.clientName}. We received your booking request for ${data.packageName || 'a session'} on ${formatSessionDate(data.preferredDate)}. Manage your booking: ${data.link}`
+  const text = `Thanks, ${data.clientName}. We received your booking request for ${data.packageName || 'a session'} on ${formatSessionDate(data.preferredDate)}. Open your booking dashboard (link expires after 24 hours): ${data.link}`
   return { subject, html, text }
 }
 
@@ -137,38 +170,62 @@ export function bookingCancelledEmail(data: BookingEmailData & { cancelledBy?: '
     `<p>Hi ${escapeHtml(data.clientName)}, ${cancelledBy}</p>
 ${summary(data.packageName, data.preferredDate)}
 <p>If you still need a session, you can submit a new request at any time.</p>
-${button(data.link, 'View booking details')}`,
+${button(data.link, 'Open your booking dashboard')}
+<p style="font-size:13px;color:#a1a1aa">This private link expires after 24 hours.</p>`,
   )
-  const text = `Hi ${data.clientName}, ${cancelledBy} ${data.packageName || 'Session'} on ${formatSessionDate(data.preferredDate)}. View details: ${data.link}`
+  const text = `Hi ${data.clientName}, ${cancelledBy} ${data.packageName || 'Session'} on ${formatSessionDate(data.preferredDate)}. Open your booking dashboard (link expires after 24 hours): ${data.link}`
   return { subject, html, text }
 }
 
-export function bookingConfirmedEmail(data: BookingEmailData & { paymentInstructions: string }) {
+export function bookingConfirmedEmail(data: BookingEmailData & { paymentInstructions: string; packagePrice: number | null }) {
   const subject = 'Your session is confirmed'
   const paymentHtml = escapeHtml(data.paymentInstructions).replace(/\n/g, '<br>')
+  const total = data.packagePrice == null ? null : Math.max(0, data.packagePrice)
+  const deposit = total == null ? 20 : Math.min(20, total)
+  const remaining = total == null ? null : Math.max(0, total - deposit)
+  const money = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
+  const amountHtml = `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#0a0a0a;border:1px solid #27272a;border-radius:12px;margin:8px 0">
+<tr><td style="padding:12px 16px;color:#a1a1aa;font-size:13px">Session total</td><td style="padding:12px 16px;text-align:right">${total == null ? 'To be confirmed' : escapeHtml(money(total))}</td></tr>
+<tr><td style="padding:12px 16px;color:#a1a1aa;font-size:13px;border-top:1px solid #27272a">Deposit to hold date</td><td style="padding:12px 16px;text-align:right;border-top:1px solid #27272a">${escapeHtml(money(deposit))}</td></tr>
+<tr><td style="padding:12px 16px;color:#a1a1aa;font-size:13px;border-top:1px solid #27272a">Remaining balance (due session day)</td><td style="padding:12px 16px;text-align:right;border-top:1px solid #27272a">${remaining == null ? 'To be confirmed' : escapeHtml(money(remaining))}</td></tr>
+</table>`
   const html = layout(
     'Your date is verified',
     `<p>Hi ${escapeHtml(data.clientName)}, your session is confirmed.</p>
 ${summary(data.packageName, data.preferredDate)}
+${amountHtml}
 <p style="font-weight:600;color:#ffffff;padding-top:8px">Payment</p>
+<p>1. Pay the deposit shown above to hold your date.<br>2. Choose one of the payment options below.<br>3. Include your name and session date with your payment.<br>4. Pay the remaining balance on the day of your session.</p>
 <p>${paymentHtml}</p>
 <p style="font-size:13px;color:#a1a1aa">${escapeHtml(CANCELLATION_POLICY)}</p>
-${button(data.link, 'View your booking')}`,
+${button(data.link, 'Open your booking dashboard')}`,
   )
-  const text = `Hi ${data.clientName}, your session (${data.packageName || 'session'}) on ${formatSessionDate(data.preferredDate)} is confirmed.\n\nPayment:\n${data.paymentInstructions}\n\n${CANCELLATION_POLICY}\n\nView your booking: ${data.link}`
+  const text = `Hi ${data.clientName}, your session (${data.packageName || 'session'}) on ${formatSessionDate(data.preferredDate)} is confirmed.\n\nSession total: ${total == null ? 'To be confirmed' : money(total)}\nDeposit to hold date: ${money(deposit)}\nRemaining balance due on session day: ${remaining == null ? 'To be confirmed' : money(remaining)}\n\nPayment steps:\n1. Pay the deposit shown above to hold your date.\n2. Choose one of the payment options below.\n3. Include your name and session date with your payment.\n4. Pay the remaining balance on the day of your session.\n\nPayment options and details:\n${data.paymentInstructions}\n\n${CANCELLATION_POLICY}\n\nOpen your booking dashboard: ${data.link}`
   return { subject, html, text }
 }
 
-export function bookingLinksEmail(links: { packageName: string; preferredDate: Date | string | null; link: string }[]) {
-  const subject = 'Your KCAPTURED booking links'
-  const items = links
-    .map(
-      (item) =>
-        `<p style="margin:0 0 12px"><a href="${escapeHtml(item.link)}" style="color:#ffffff">${escapeHtml(item.packageName || 'Session')} &middot; ${escapeHtml(formatSessionDate(item.preferredDate))}</a></p>`,
-    )
-    .join('')
-  const html = layout('Your bookings', `<p>Here are the links to manage your bookings:</p>${items}`)
-  const text = `Your bookings:\n${links.map((item) => `${item.packageName || 'Session'} - ${formatSessionDate(item.preferredDate)}: ${item.link}`).join('\n')}`
+export function bookingDashboardEmail(link: string) {
+  const subject = 'Your KCAPTURED booking dashboard link'
+  const html = layout(
+    'Your bookings',
+    `<p>Use this secure link to view your booking history, manage eligible cancellations, and find the Google review link.</p>
+${button(link, 'Open your booking dashboard')}
+<p style="font-size:13px;color:#a1a1aa">This link expires after 24 hours. You can request another from the booking page.</p>`,
+  )
+  const text = `Open your KCAPTURED booking dashboard to view your booking history, manage eligible cancellations, and find the Google review link: ${link}\n\nThis link expires after 24 hours. You can request another from the booking page.`
+  return { subject, html, text }
+}
+
+export function adminPasswordResetEmail(username: string, resetUrl: string) {
+  const subject = 'Reset your KCAPTURED admin password'
+  const html = layout(
+    'Admin password reset',
+    `<p>A password reset was requested for the <strong>${escapeHtml(username)}</strong> admin account.</p>
+<p>This one-time link expires in 30 minutes and can only be used once.</p>
+${button(resetUrl, 'Reset admin password')}
+<p style="font-size:13px;color:#a1a1aa">If you did not request this, you can ignore this email. Do not forward this private link.</p>`,
+  )
+  const text = `A password reset was requested for the ${username} admin account. This one-time link expires in 30 minutes and can only be used once: ${resetUrl}\n\nIf you did not request this, ignore this email.`
   return { subject, html, text }
 }
 

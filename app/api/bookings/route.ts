@@ -1,15 +1,16 @@
 import { randomBytes, randomUUID } from "crypto";
 import { pool } from "@/lib/db";
-import { verifyUploadToken } from "@/lib/auth-utils";
+import { verifyUploadRequest } from "@/lib/auth-utils";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { DEFAULT_PAYMENT_INSTRUCTIONS, isBookingStatus } from "@/lib/booking-status";
+import { isRecord, isValidEmail, isValidIsoDate, readJsonBody, sanitizePhone, sanitizeText } from "@/lib/input-validation";
+import { recordAdminAuditEvent } from "@/lib/admin-audit";
 import {
-  adminNotificationEmail,
   bookingCancelledEmail,
   bookingConfirmedEmail,
   bookingReceivedEmail,
+  clientDashboardUrl,
   getSiteUrl,
-  manageUrl,
   sendEmail,
 } from "@/lib/email";
 
@@ -22,16 +23,8 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function isAdmin(request: Request) {
-  const token = (request.headers.get("authorization") ?? "").replace(
-    /^Bearer\s+/i,
-    "",
-  );
-  return Boolean(
-    token &&
-    request.headers.get("x-upload-source") === "kc-upload" &&
-    verifyUploadToken(token),
-  );
+async function isAdmin(request: Request) {
+  return verifyUploadRequest(request);
 }
 
 function mapRow(row: any) {
@@ -66,39 +59,22 @@ async function getStudioSettings() {
   }
 }
 
-async function sendReceivedEmails(row: any, siteUrl: string, notifyAdmin: boolean) {
+async function sendReceivedEmails(row: any, siteUrl: string) {
   const settings = await getStudioSettings();
   const replyTo = settings.booking_email || settings.email || null;
-  const tasks: Promise<unknown>[] = [];
-  if (row.email && row.manage_token) {
+  if (row.email) {
     const message = bookingReceivedEmail({
       clientName: row.client_name,
       packageName: row.package_name ?? "",
       preferredDate: row.preferred_date,
-      link: manageUrl(siteUrl, row.manage_token),
+      link: clientDashboardUrl(siteUrl, row.email),
     });
-    tasks.push(
-      sendEmail({ to: row.email, ...message, replyTo, idempotencyKey: `booking-received-${row.id}` }),
-    );
+    await sendEmail({ to: row.email, ...message, replyTo, idempotencyKey: `booking-received-${row.id}` });
   }
-  if (notifyAdmin && settings.booking_email) {
-    const message = adminNotificationEmail("new", {
-      clientName: row.client_name,
-      email: row.email ?? "",
-      phone: row.phone ?? "",
-      packageName: row.package_name ?? "",
-      preferredDate: row.preferred_date,
-      adminUrl: `${siteUrl}/admin`,
-    });
-    tasks.push(
-      sendEmail({ to: settings.booking_email, ...message, idempotencyKey: `booking-admin-new-${row.id}` }),
-    );
-  }
-  await Promise.allSettled(tasks);
 }
 
 async function sendCancellationOnce(row: any, siteUrl: string, cancelledBy: 'admin' | 'client') {
-  if (!row.email || !row.manage_token) return
+  if (!row.email) return
   const claim = await pool.query(
     "UPDATE bookings SET cancellation_email_sent_at = now() WHERE id = $1 AND cancellation_email_sent_at IS NULL RETURNING id",
     [row.id],
@@ -109,7 +85,7 @@ async function sendCancellationOnce(row: any, siteUrl: string, cancelledBy: 'adm
     clientName: row.client_name,
     packageName: row.package_name ?? '',
     preferredDate: row.preferred_date,
-    link: manageUrl(siteUrl, row.manage_token),
+    link: clientDashboardUrl(siteUrl, row.email),
     cancelledBy,
   })
   const result = await sendEmail({
@@ -122,7 +98,7 @@ async function sendCancellationOnce(row: any, siteUrl: string, cancelledBy: 'adm
 }
 
 async function sendConfirmationOnce(row: any, siteUrl: string) {
-  if (!row.email || !row.manage_token) return;
+  if (!row.email) return;
   const claim = await pool.query(
     "UPDATE bookings SET confirmation_email_sent_at = now() WHERE id = $1 AND confirmation_email_sent_at IS NULL RETURNING id",
     [row.id],
@@ -133,8 +109,9 @@ async function sendConfirmationOnce(row: any, siteUrl: string) {
     clientName: row.client_name,
     packageName: row.package_name ?? "",
     preferredDate: row.preferred_date,
-    link: manageUrl(siteUrl, row.manage_token),
+    link: clientDashboardUrl(siteUrl, row.email),
     paymentInstructions: settings.payment_instructions || DEFAULT_PAYMENT_INSTRUCTIONS,
+    packagePrice: row.package_price == null ? null : Number(row.package_price),
   });
   const result = await sendEmail({
     to: row.email,
@@ -150,7 +127,7 @@ async function sendConfirmationOnce(row: any, siteUrl: string) {
 }
 
 export async function GET(request: Request) {
-  if (!isAdmin(request)) return json({ error: "Unauthorized" }, 401);
+  if (!(await isAdmin(request))) return json({ error: "Unauthorized" }, 401);
   try {
     const result = await pool.query(
       "SELECT * FROM bookings ORDER BY request_date DESC",
@@ -164,7 +141,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const admin = isAdmin(request);
+    const admin = await isAdmin(request);
     if (!admin) {
       const rate = checkRateLimit(
         `booking:${getClientIp(request)}`,
@@ -185,30 +162,45 @@ export async function POST(request: Request) {
           },
         );
     }
-    const body = await request.json();
-    const clientName = String(body.clientName ?? "").trim();
-    const email = String(body.email ?? "").trim().toLowerCase();
-    const phone = String(body.phone ?? "").trim();
+    const body = await readJsonBody(request);
+    if (!isRecord(body)) return json({ error: "Invalid booking details" }, 400);
+    if (
+      (body.clientName != null && typeof body.clientName !== "string") ||
+      (body.email != null && typeof body.email !== "string") ||
+      (body.phone != null && typeof body.phone !== "string") ||
+      (body.packageName != null && typeof body.packageName !== "string") ||
+      (body.notes != null && typeof body.notes !== "string") ||
+      (body.idempotencyKey != null && typeof body.idempotencyKey !== "string")
+    ) {
+      return json({ error: "Booking fields must be text" }, 400);
+    }
+    const clientName = sanitizeText(body.clientName);
+    const email = sanitizeText(body.email).toLowerCase();
+    const phone = sanitizePhone(body.phone);
+    const packageName = sanitizeText(body.packageName);
+    const notes = sanitizeText(body.notes);
     if (!clientName) return json({ error: "Name is required" }, 400);
     if (!admin && !email)
-      return json({ error: "Email is required so we can send your booking link" }, 400);
+      return json({ error: "Email is required so we can send your dashboard link" }, 400);
     if (admin && !email && !phone)
       return json({ error: "Name and at least one contact method are required" }, 400);
     if (
       clientName.length > 120 ||
       email.length > 254 ||
-      phone.length > 40 ||
-      String(body.notes ?? "").length > 2000
+      packageName.length > 120 ||
+      notes.length > 2000
     )
       return json({ error: "Booking details are too long" }, 400);
-    if (email && !/^\S+@\S+\.\S+$/.test(email))
+    if (phone === null || phone.length > 40)
+      return json({ error: "Enter a valid phone number" }, 400);
+    if (email && !isValidEmail(email))
       return json({ error: "Enter a valid email address" }, 400);
 
     let preferredDate: Date | null = null;
     if (body.preferredDate) {
-      preferredDate = new Date(String(body.preferredDate));
-      if (Number.isNaN(preferredDate.getTime()))
+      if (typeof body.preferredDate !== "string" || !isValidIsoDate(body.preferredDate))
         return json({ error: "Enter a valid preferred date" }, 400);
+      preferredDate = new Date(`${body.preferredDate}T00:00:00.000Z`);
       if (!admin) {
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);
@@ -217,7 +209,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+    const idempotencyKey = sanitizeText(body.idempotencyKey);
     if (!idempotencyKey || idempotencyKey.length > 100)
       return json(
         { error: "Invalid booking request. Please refresh and try again." },
@@ -235,29 +227,47 @@ export async function POST(request: Request) {
     );
     if (existing.rows[0]) return publicResponse(existing.rows[0], 200, true);
 
+    const packageResult = packageName
+      ? await pool.query("SELECT price FROM packages WHERE name = $1 ORDER BY updated_at DESC LIMIT 1", [packageName])
+      : { rows: [] };
+    const packagePrice = packageResult.rows[0]?.price == null ? null : Number(packageResult.rows[0].price);
+    if (admin && body.status !== undefined && !isBookingStatus(body.status))
+      return json({ error: "Enter a valid booking status" }, 400);
     const status = admin && isBookingStatus(body.status) ? body.status : "pending";
     try {
       const result = await pool.query(
-        `INSERT INTO bookings (id, client_name, email, phone, package_name, preferred_date, request_date, status, notes, idempotency_key, manage_token, confirmed_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,now(),$7,$8,$9,$10,$11,now(),now()) RETURNING *`,
+        `INSERT INTO bookings (id, client_name, email, phone, package_name, package_price, preferred_date, request_date, status, notes, idempotency_key, manage_token, confirmed_at, cancelled_at, cancelled_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,now(),$8,$9,$10,$11,$12,$13,$14,now(),now()) RETURNING *`,
         [
           randomUUID(),
           clientName,
           email,
           phone,
-          body.packageName ? String(body.packageName).trim().slice(0, 120) : "",
+          packageName,
+          packagePrice,
           preferredDate,
           status,
-          body.notes ? String(body.notes).trim() : null,
+          notes || null,
           idempotencyKey,
           randomBytes(32).toString("base64url"),
           status === "confirmed" ? new Date() : null,
+          status === "cancelled" ? new Date() : null,
+          status === "cancelled" ? "admin" : null,
         ],
       );
       const row = result.rows[0];
+      if (admin) {
+        await recordAdminAuditEvent(request, {
+          action: "created",
+          entityType: "bookings",
+          entityId: String(row.id),
+          description: `Created booking for ${clientName}`,
+        });
+      }
       const siteUrl = getSiteUrl(request);
-      await sendReceivedEmails(row, siteUrl, !admin);
+      if (status !== "cancelled") await sendReceivedEmails(row, siteUrl);
       if (status === "confirmed") await sendConfirmationOnce(row, siteUrl);
+      if (status === "cancelled") await sendCancellationOnce(row, siteUrl, "admin");
       return publicResponse(row, 201);
     } catch (error: any) {
       if (error?.code !== "23505") throw error;
@@ -275,10 +285,10 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!isAdmin(request)) return json({ error: "Unauthorized" }, 401);
+  if (!(await isAdmin(request))) return json({ error: "Unauthorized" }, 401);
   try {
-    const body = await request.json();
-    if (!body.id || !isBookingStatus(body.status))
+    const body = await readJsonBody(request);
+    if (!isRecord(body) || typeof body.id !== "string" || !sanitizeText(body.id) || sanitizeText(body.id).length > 120 || !isBookingStatus(body.status))
       return json({ error: "A valid booking id and status are required" }, 400);
     const result = await pool.query(
       `UPDATE bookings SET
@@ -288,10 +298,16 @@ export async function PATCH(request: Request) {
          cancelled_by = CASE WHEN $1 = 'cancelled' THEN 'admin' ELSE NULL END,
          updated_at = now()
        WHERE id = $2 RETURNING *`,
-      [body.status, body.id],
+      [body.status, sanitizeText(body.id)],
     );
     const row = result.rows[0];
     if (!row) return json({ error: "Booking not found" }, 404);
+    await recordAdminAuditEvent(request, {
+      action: "status_changed",
+      entityType: "bookings",
+      entityId: String(row.id),
+      description: `Changed booking status to ${body.status}`,
+    });
     if (body.status === "confirmed") await sendConfirmationOnce(row, getSiteUrl(request));
     if (body.status === "cancelled") await sendCancellationOnce(row, getSiteUrl(request), "admin");
     return json({ booking: mapRow(row) });
@@ -302,15 +318,21 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!isAdmin(request)) return json({ error: "Unauthorized" }, 401);
+  if (!(await isAdmin(request))) return json({ error: "Unauthorized" }, 401);
   try {
-    const body = await request.json();
-    if (!body.id) return json({ error: "Missing booking id" }, 400);
+    const body = await readJsonBody(request);
+    if (!isRecord(body) || typeof body.id !== "string" || !sanitizeText(body.id) || sanitizeText(body.id).length > 120) return json({ error: "Missing booking id" }, 400);
     const result = await pool.query(
       "DELETE FROM bookings WHERE id = $1 RETURNING id",
-      [body.id],
+      [sanitizeText(body.id)],
     );
     if (!result.rows[0]) return json({ error: "Booking not found" }, 404);
+    await recordAdminAuditEvent(request, {
+      action: "deleted",
+      entityType: "bookings",
+      entityId: String(result.rows[0].id),
+      description: "Deleted booking",
+    });
     return json({ success: true });
   } catch (error) {
     console.error("[bookings][DELETE] error", error);

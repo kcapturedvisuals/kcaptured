@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { isValidEmail, sanitizePhone, sanitizeText } from "@/lib/input-validation";
 import {
   LayoutDashboard,
   Image as ImageIcon,
@@ -28,6 +29,10 @@ import {
   Check,
   DollarSign,
   TrendingUp,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  UserCog,
 } from "lucide-react";
 
 type Section =
@@ -37,7 +42,8 @@ type Section =
   | "testimonials"
   | "bookings"
   | "trail"
-  | "settings";
+  | "settings"
+  | "admins";
 type BookingStatus = "Pending" | "To Confirm" | "Confirmed" | "Cancelled";
 type AuditType =
   | "create"
@@ -94,12 +100,15 @@ interface Booking {
 }
 
 interface AuditEntry {
-  id: number;
+  id: string;
   datetime: string;
   activity: string;
   description: string;
   section: string;
   type: AuditType;
+  actor?: string;
+  ip?: string | null;
+  country?: string | null;
   prev?: string;
   next?: string;
 }
@@ -529,17 +538,24 @@ const NAV: { id: Section; label: string; Icon: React.ElementType }[] = [
   { id: "bookings", label: "Bookings", Icon: Calendar },
   { id: "trail", label: "Trail", Icon: Shield },
   { id: "settings", label: "Settings", Icon: Settings },
+  { id: "admins", label: "Admin Access", Icon: UserCog },
 ];
 
 function Sidebar({
   active,
   onNavigate,
+  onLogout,
+  showAdminTools,
+  className = "",
 }: {
   active: Section;
   onNavigate: (s: Section) => void;
+  onLogout: () => void;
+  showAdminTools: boolean;
+  className?: string;
 }) {
   return (
-    <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0d0d0d]">
+    <aside className={`flex w-[220px] shrink-0 flex-col border-r border-[#1a1a1a] bg-[#0d0d0d] ${className}`}>
       <div className="flex items-center gap-3 border-b border-[#1a1a1a] px-5 py-5">
         <img
           src="/kcaptured-logo.png"
@@ -560,7 +576,7 @@ function Sidebar({
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-5">
-        {NAV.map(({ id, label, Icon }) => {
+        {NAV.filter(({ id }) => id !== "admins" || showAdminTools).map(({ id, label, Icon }) => {
           const isActive = active === id;
           return (
             <button
@@ -598,6 +614,14 @@ function Sidebar({
         <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600">
           v1.0.0
         </div>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="mt-3 flex w-full items-center gap-2 text-left text-xs text-zinc-500 transition-colors hover:text-white"
+        >
+          <LogOut size={13} />
+          Sign out
+        </button>
       </div>
     </aside>
   );
@@ -788,57 +812,54 @@ function DashboardPage({
         <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
           Quick Actions
         </div>
-        <div className="flex flex-wrap gap-3">
-          <Btn variant="red" onClick={() => onNavigate("portfolio")}>
-            <Plus size={13} />
+        <div className="flex flex-wrap gap-2">
+          <Btn size="xs" variant="red" className="whitespace-nowrap" onClick={() => onNavigate("portfolio")}>
+            <Plus size={12} />
             Add Portfolio Image
           </Btn>
-          <Btn onClick={() => onNavigate("packages")}>
-            <Plus size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => onNavigate("packages")}>
+            <Plus size={12} />
             Add Package
           </Btn>
-          <Btn onClick={() => onNavigate("testimonials")}>
-            <Plus size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => onNavigate("testimonials")}>
+            <Plus size={12} />
             Add Testimonial
           </Btn>
-          <Btn onClick={() => onNavigate("bookings")}>
-            <Calendar size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => onNavigate("bookings")}>
+            <Calendar size={12} />
             View Bookings
           </Btn>
-          <Btn onClick={() => setShowTrend((current) => !current)}>
-            <TrendingUp size={13} />
+          <Btn size="xs" className="whitespace-nowrap" onClick={() => setShowTrend((current) => !current)}>
+            <TrendingUp size={12} />
             {showTrend ? "Hide Trend" : "Income Trend"}
           </Btn>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6">
         <div className="flex flex-col gap-6">
-          <div
-            className="grid gap-3"
-            style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}
-          >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-6">
             {stats.map(({ label, value, sub, Icon }) => (
               <div
                 key={label}
-                className="flex flex-col gap-3 rounded border border-[#222] bg-[#141414] p-4"
+                className="flex min-w-0 flex-col gap-3 rounded border border-[#222] bg-[#141414] p-3 sm:p-4"
               >
-                <div className="flex items-start justify-between gap-1">
-                  <span className="text-[9px] font-semibold uppercase tracking-[0.15em] text-zinc-500 leading-tight">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 text-[9px] font-semibold uppercase tracking-[0.12em] leading-tight text-zinc-500 sm:tracking-[0.15em]">
                     {label}
                   </span>
                   <Icon
                     size={13}
-                    className="mt-0.5 flex-shrink-0 text-zinc-700"
+                    className="mt-0.5 shrink-0 text-zinc-700"
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div
-                    className="text-[2rem] font-bold leading-none text-white"
+                    className="break-words text-[clamp(1.125rem,4vw,2rem)] font-bold leading-tight tabular-nums text-white"
                     style={{ fontFamily: CONDENSED }}
                   >
                     {value}
                   </div>
-                  <div className="mt-1 text-[10px] text-zinc-600">{sub}</div>
+                  <div className="mt-1 break-words text-[10px] leading-snug text-zinc-600">{sub}</div>
                 </div>
               </div>
             ))}
@@ -1085,10 +1106,7 @@ function DashboardPage({
             </SectionCard>
           )}
 
-          <div
-            className="grid gap-4"
-            style={{ gridTemplateColumns: "1fr 280px" }}
-          >
+          <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
             <SectionCard title="Recent Portfolio">
               <div className="flex gap-3 overflow-x-auto p-4">
                 {portfolio.slice(0, 6).map((img) => (
@@ -1271,7 +1289,6 @@ function PortfolioPage({
   };
 
   const adminHeaders = () => ({
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
@@ -1651,7 +1668,11 @@ function PortfolioPage({
           </div>
         ) : (
           <SectionCard>
-            <table className="w-full">
+            <p className="border-b border-[#1e1e1e] px-4 py-2 text-[10px] text-zinc-600">
+              Scroll or swipe sideways to view all columns.
+            </p>
+            <div role="region" aria-label="Scrollable portfolio table" tabIndex={0} className="table-scroll max-w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x">
+            <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-[#1e1e1e]">
                   {[
@@ -1764,6 +1785,7 @@ function PortfolioPage({
                 ))}
               </tbody>
             </table>
+            </div>
           </SectionCard>
         )}
       </div>
@@ -1911,6 +1933,7 @@ function PortfolioPage({
           <FInput
             label="Title"
             value={form.title}
+            maxLength={160}
             onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
             placeholder="Image title"
           />
@@ -1937,6 +1960,7 @@ function PortfolioPage({
             }
             placeholder="Brief description or caption..."
             rows={3}
+            maxLength={2000}
           />
 
           <Toggle
@@ -2053,12 +2077,10 @@ function PackagesPage({
 
   const adminHeaders = () => ({
     "Content-Type": "application/json",
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
   const uploadHeaders = () => ({
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
@@ -2183,7 +2205,7 @@ function PackagesPage({
           Add Package
         </Btn>
       </PageHeader>
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6">
         {packages.length === 0 ? (
           <div className="flex min-h-48 items-center justify-center rounded border border-dashed border-[#2a2a2a] text-xs uppercase tracking-[0.2em] text-zinc-600">
             No packages
@@ -2305,6 +2327,7 @@ function PackagesPage({
           <FInput
             label="Category"
             value={form.category}
+            maxLength={80}
             onChange={(e) =>
               setForm((f) => ({ ...f, category: e.target.value }))
             }
@@ -2313,6 +2336,7 @@ function PackagesPage({
           <FInput
             label="Package Name"
             value={form.name}
+            maxLength={120}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="e.g. Wedding Day"
           />
@@ -2320,6 +2344,9 @@ function PackagesPage({
             <FInput
               label="Price ($)"
               type="number"
+              min={0}
+              max={1000000}
+              step={1}
               value={form.price}
               onChange={(e) =>
                 setForm((f) => ({ ...f, price: Number(e.target.value) }))
@@ -2329,6 +2356,7 @@ function PackagesPage({
             <FInput
               label="Duration"
               value={form.duration}
+              maxLength={80}
               onChange={(e) =>
                 setForm((f) => ({ ...f, duration: e.target.value }))
               }
@@ -2338,6 +2366,8 @@ function PackagesPage({
           <FInput
             label="Edited Images"
             type="number"
+            min={0}
+            max={10000}
             value={form.images}
             onChange={(e) =>
               setForm((f) => ({ ...f, images: Number(e.target.value) }))
@@ -2393,6 +2423,7 @@ function PackagesPage({
               setForm((f) => ({ ...f, description: e.target.value }))
             }
             rows={3}
+            maxLength={2000}
             placeholder="Package description..."
           />
           <FTextarea
@@ -2402,6 +2433,7 @@ function PackagesPage({
               setForm((f) => ({ ...f, features: e.target.value }))
             }
             rows={5}
+            maxLength={30000}
             placeholder={"Online gallery\nHigh-res downloads\nBasic retouching"}
           />
           <FSelect
@@ -2546,7 +2578,6 @@ function TestimonialsPage({
 
   const adminHeaders = () => ({
     "Content-Type": "application/json",
-    Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
     "x-upload-source": "kc-upload",
   });
 
@@ -2757,6 +2788,7 @@ function TestimonialsPage({
           <FInput
             label="Client Name"
             value={form.client}
+            maxLength={120}
             onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))}
             placeholder="Client full name"
           />
@@ -2791,6 +2823,7 @@ function TestimonialsPage({
             value={form.text}
             onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
             rows={4}
+            maxLength={5000}
             placeholder="What the client said..."
           />
           <div className="flex flex-col gap-1.5">
@@ -2903,13 +2936,26 @@ function BookingsPage({
   };
 
   const handleCreateBooking = async () => {
-    if (!newBooking.client.trim()) {
+    const clientName = sanitizeText(newBooking.client);
+    const email = sanitizeText(newBooking.email).toLowerCase();
+    const phone = sanitizePhone(newBooking.phone);
+    const packageName = sanitizeText(newBooking.package);
+    const notes = sanitizeText(newBooking.notes);
+    if (!clientName || clientName.length > 120) {
       setCreateError("Client name is required.");
       return;
     }
 
-    if (!newBooking.email.trim() && !newBooking.phone.trim()) {
+    if (!email && !phone) {
       setCreateError("Add at least one contact method.");
+      return;
+    }
+    if ((email && !isValidEmail(email)) || phone === null || (phone?.length ?? 0) > 40) {
+      setCreateError("Enter a valid email address or phone number.");
+      return;
+    }
+    if (packageName.length > 120 || notes.length > 2000) {
+      setCreateError("Package or notes exceed the allowed length.");
       return;
     }
 
@@ -2921,16 +2967,15 @@ function BookingsPage({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         },
         body: JSON.stringify({
-          clientName: newBooking.client.trim(),
-          email: newBooking.email.trim(),
-          phone: newBooking.phone.trim(),
-          packageName: newBooking.package.trim(),
+          clientName,
+          email,
+          phone: phone ?? "",
+          packageName,
           preferredDate: newBooking.preferredDate || null,
-          notes: newBooking.notes.trim(),
+          notes,
           status: BOOKING_STATUS_VALUES[newBooking.status],
           idempotencyKey: crypto.randomUUID(),
         }),
@@ -2993,7 +3038,6 @@ function BookingsPage({
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         },
         body: JSON.stringify({ id, status: statusValues[next] }),
@@ -3069,7 +3113,11 @@ function BookingsPage({
           </div>
         ) : (
           <SectionCard>
-            <table className="w-full">
+            <p className="border-b border-[#1e1e1e] px-4 py-2 text-[10px] text-zinc-600">
+              Scroll or swipe sideways to view all columns.
+            </p>
+            <div role="region" aria-label="Scrollable bookings table" tabIndex={0} className="table-scroll max-w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x">
+            <table className="w-full min-w-[920px]">
               <thead>
                 <tr className="border-b border-[#1e1e1e]">
                   {[
@@ -3172,6 +3220,7 @@ function BookingsPage({
                 ))}
               </tbody>
             </table>
+            </div>
           </SectionCard>
         )}
       </div>
@@ -3189,6 +3238,7 @@ function BookingsPage({
           <FInput
             label="Client Name"
             value={newBooking.client}
+            maxLength={120}
             onChange={(e) =>
               setNewBooking((f) => ({ ...f, client: e.target.value }))
             }
@@ -3200,6 +3250,7 @@ function BookingsPage({
               label="Email"
               type="email"
               value={newBooking.email}
+              maxLength={254}
               onChange={(e) =>
                 setNewBooking((f) => ({ ...f, email: e.target.value }))
               }
@@ -3208,6 +3259,7 @@ function BookingsPage({
             <FInput
               label="Phone"
               value={newBooking.phone}
+              maxLength={40}
               onChange={(e) =>
                 setNewBooking((f) => ({ ...f, phone: e.target.value }))
               }
@@ -3265,6 +3317,7 @@ function BookingsPage({
           <FTextarea
             label="Notes"
             value={newBooking.notes}
+            maxLength={2000}
             onChange={(e) =>
               setNewBooking((f) => ({ ...f, notes: e.target.value }))
             }
@@ -3364,17 +3417,23 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           <SectionCard>
-            <table className="w-full">
+            <p className="border-b border-[#1e1e1e] px-4 py-2 text-[10px] text-zinc-600">
+              Scroll or swipe sideways to view all columns.
+            </p>
+            <div role="region" aria-label="Scrollable audit trail table" tabIndex={0} className="table-scroll max-w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x">
+            <table className="w-full min-w-[1120px]">
               <thead>
                 <tr className="border-b border-[#1e1e1e]">
                   {[
                     "Date & Time",
-                    "Activity",
-                    "Description",
-                    "Section",
-                    "Type",
+                      "Admin",
+                      "Activity",
+                      "Description",
+                      "Section",
+                      "IP / Country",
+                      "Type",
                   ].map((h) => (
                     <th
                       key={h}
@@ -3401,6 +3460,7 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                       >
                         {entry.datetime}
                       </td>
+                      <td className="px-4 py-3 text-xs text-zinc-400">{entry.actor ?? "—"}</td>
                       <td className="px-4 py-3 text-sm text-white">
                         {entry.activity}
                       </td>
@@ -3409,6 +3469,11 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                       </td>
                       <td className="px-4 py-3 text-xs text-zinc-500">
                         {entry.section}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-zinc-500 whitespace-nowrap" style={{ fontFamily: MONO }}>
+                        {entry.ip
+                          ? `${entry.ip === "::1" ? "localhost (127.0.0.1)" : entry.ip}${entry.country ? ` · ${entry.country}` : ""}`
+                          : "—"}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
@@ -3424,7 +3489,7 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                 {filtered.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="px-4 py-10 text-center text-sm text-zinc-600"
                     >
                       No activity matches your filter.
@@ -3433,6 +3498,7 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
                 )}
               </tbody>
             </table>
+            </div>
           </SectionCard>
         </div>
 
@@ -3517,6 +3583,187 @@ function AuditTrailPage({ audit }: { audit: AuditEntry[] }) {
   );
 }
 
+interface AdminAccountRow {
+  id: string;
+  username: string;
+  role: "admin" | "super_admin";
+  active: boolean;
+  must_change_password: boolean;
+  failed_login_attempts: number;
+  locked_until: string | null;
+  created_at: string;
+}
+
+function AdminAccountsPage() {
+  const [accounts, setAccounts] = useState<AdminAccountRow[]>([]);
+  const [username, setUsername] = useState("");
+  const [resetUrl, setResetUrl] = useState("");
+  const [resetTarget, setResetTarget] = useState<AdminAccountRow | null>(null);
+  const [resetEmail, setResetEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadAccounts = async () => {
+    const response = await fetch("/api/auth/admins");
+    if (!response.ok) throw new Error("Could not load admin accounts.");
+    setAccounts(await response.json());
+  };
+
+  useEffect(() => {
+    loadAccounts().catch((loadError) => setError(loadError.message));
+  }, []);
+
+  const createAccount = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", username }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Could not create account.");
+      setUsername("");
+      setMessage(`Admin account ${result.username} created. The temporary password is the username; they must change it at first sign-in.`);
+      await loadAccounts();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create account.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const generateResetLink = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!resetTarget) return;
+    const email = resetEmail.trim();
+    if (email && !isValidEmail(email)) {
+      setError("Enter a valid email address or leave it blank to copy the link.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setResetUrl("");
+    try {
+      const response = await fetch("/api/auth/admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset_link", adminUserId: resetTarget.id, email }),
+      });
+      const result = await response.json() as { error?: string; resetUrl?: string; emailed?: boolean };
+      if (result.resetUrl) setResetUrl(result.resetUrl);
+      if (!response.ok) {
+        if (result.resetUrl) {
+          setResetTarget(null);
+          setResetEmail("");
+        }
+        throw new Error(result.error ?? "Could not create reset link.");
+      }
+      setMessage(result.emailed
+        ? `One-time reset link emailed for ${resetTarget.username}. It expires in 30 minutes.`
+        : `One-time reset link created for ${resetTarget.username}. Copy it below and share it privately; it expires in 30 minutes.`);
+      setResetTarget(null);
+      setResetEmail("");
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : "Could not create reset link.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyResetLink = async () => {
+    try {
+      await navigator.clipboard.writeText(resetUrl);
+      setMessage("Reset link copied. Send it only through a private channel.");
+    } catch {
+      setError("Could not copy the link. Select and copy it manually.");
+    }
+  };
+
+  return (
+    <div className="flex flex-1 flex-col overflow-y-auto p-6">
+      <PageHeader title="Admin Access" />
+      <div className="mx-auto grid w-full max-w-5xl gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <SectionCard>
+          <div className="p-5">
+            <h2 className="text-sm font-semibold text-white">Create admin</h2>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+              The username is the temporary password. New admins must replace it at first sign-in with a password of at least 12 characters.
+            </p>
+            <form onSubmit={createAccount} className="mt-5 space-y-4">
+              <FInput label="Username (also temporary password)" value={username} minLength={2} maxLength={64} autoComplete="off" onChange={(event) => setUsername(event.target.value)} required />
+              <Btn type="submit" variant="red" disabled={busy || username.trim().length < 2}>Create admin</Btn>
+            </form>
+          </div>
+        </SectionCard>
+
+        <SectionCard>
+          <div className="p-5">
+            <h2 className="text-sm font-semibold text-white">Admin accounts</h2>
+            <div className="mt-4 space-y-3">
+              {accounts.map((account) => (
+                <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[#202020] py-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{account.username}</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-widest text-zinc-500">
+                      {account.role.replace("_", " ")} · {account.must_change_password ? "temporary password" : "active credentials"}
+                      {account.locked_until && new Date(account.locked_until).getTime() > Date.now() ? " · locked" : ""}
+                    </p>
+                  </div>
+                  {account.role === "admin" && (
+                    <Btn disabled={busy} onClick={() => {
+                      setError("");
+                      setMessage("");
+                      setResetUrl("");
+                      setResetTarget(account);
+                      setResetEmail("");
+                    }}>Generate reset link</Btn>
+                  )}
+                </div>
+              ))}
+              {accounts.length === 0 && <p className="text-xs text-zinc-500">No accounts found.</p>}
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+      {(message || error) && (
+        <p role={error ? "alert" : "status"} className={`mx-auto mt-5 w-full max-w-5xl border p-3 text-sm ${error ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"}`}>
+          {error || message}
+        </p>
+      )}
+      {resetUrl && (
+        <div className="mx-auto mt-4 w-full max-w-5xl border border-amber-400/30 bg-amber-400/5 p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-amber-200">Private one-time link · expires in 30 minutes</p>
+          <input readOnly value={resetUrl} className="mt-3 h-10 w-full border border-white/10 bg-black/50 px-3 font-mono text-xs text-zinc-300" />
+          <Btn className="mt-3" onClick={() => void copyResetLink()}>Copy link</Btn>
+        </div>
+      )}
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-5" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="reset-link-title" className="w-full max-w-md border border-[#333] bg-[#101010] p-6 shadow-2xl">
+            <h2 id="reset-link-title" className="text-sm font-semibold text-white">Reset {resetTarget.username}&apos;s password</h2>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+              Enter an email address to send the one-time link. Leave it blank to generate a link here that you can copy and share privately.
+            </p>
+            <form onSubmit={generateResetLink} className="mt-5 space-y-4">
+              <FInput label="Email address (optional)" type="email" autoComplete="email" value={resetEmail} maxLength={254} onChange={(event) => setResetEmail(event.target.value)} />
+              <div className="flex justify-end gap-2">
+                <Btn disabled={busy} onClick={() => setResetTarget(null)}>Cancel</Btn>
+                <Btn type="submit" variant="red" disabled={busy}>{busy ? "Working..." : resetEmail.trim() ? "Email reset link" : "Generate copyable link"}</Btn>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsPage({
   addAudit,
 }: {
@@ -3543,7 +3790,6 @@ function SettingsPage({
   useEffect(() => {
     fetch("/api/settings", {
       headers: {
-        Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
         "x-upload-source": "kc-upload",
       },
     })
@@ -3585,7 +3831,6 @@ function SettingsPage({
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         },
         body: JSON.stringify({
@@ -3638,6 +3883,7 @@ function SettingsPage({
               <FInput
                 label="Studio Name"
                 value={form.studioName}
+                maxLength={120}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, studioName: e.target.value }))
                 }
@@ -3646,6 +3892,7 @@ function SettingsPage({
                 label="Contact Email"
                 type="email"
                 value={form.email}
+                maxLength={254}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, email: e.target.value }))
                 }
@@ -3653,6 +3900,7 @@ function SettingsPage({
               <FInput
                 label="Phone"
                 value={form.phone}
+                maxLength={40}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, phone: e.target.value }))
                 }
@@ -3660,6 +3908,7 @@ function SettingsPage({
               <FInput
                 label="Instagram Handle"
                 value={form.instagram}
+                maxLength={80}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, instagram: e.target.value }))
                 }
@@ -3668,6 +3917,7 @@ function SettingsPage({
                 label="Booking Email"
                 type="email"
                 value={form.bookingEmail}
+                maxLength={254}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, bookingEmail: e.target.value }))
                 }
@@ -3675,6 +3925,7 @@ function SettingsPage({
               <FInput
                 label="Hero Label"
                 value={form.heroLabel}
+                maxLength={120}
                 onChange={(e) => setForm((f) => ({ ...f, heroLabel: e.target.value }))}
               />
               <div>
@@ -3756,11 +4007,13 @@ export function FigmaAdmin({
   initialSection?: Section;
 }) {
   const [section, setSection] = useState<Section>(initialSection);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [portfolio, setPortfolio] = useState<PortfolioImage[]>([]);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [adminRole, setAdminRole] = useState<"admin" | "super_admin" | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -3773,13 +4026,27 @@ export function FigmaAdmin({
     );
   };
 
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (error) {
+      console.error('[admin] failed to revoke session during sign-out', error);
+    } finally {
+      sessionStorage.removeItem('uploadToken');
+      sessionStorage.removeItem('uploadTokenExpiry');
+      window.location.assign('/login');
+    }
+  };
+
   useEffect(() => {
+    sessionStorage.removeItem("uploadToken");
+    sessionStorage.removeItem("uploadTokenExpiry");
+
     let mounted = true;
 
     async function loadData() {
       try {
         const adminHeaders = {
-          Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
           "x-upload-source": "kc-upload",
         };
         const [
@@ -3788,21 +4055,26 @@ export function FigmaAdmin({
           testimonialsResponse,
           bookingsResponse,
           auditResponse,
+          identityResponse,
         ] = await Promise.all([
-          fetch("/api/packages?includeInactive=true"),
+          fetch("/api/packages?includeInactive=true", {
+            headers: adminHeaders,
+          }),
           fetch("/api/portfolio-images"),
           fetch("/api/testimonials?includeDrafts=true", {
             headers: adminHeaders,
           }),
           fetch("/api/bookings", { headers: adminHeaders }),
           fetch("/api/audit", { headers: adminHeaders }),
+          fetch("/api/auth/me"),
         ]);
         if (
           !packagesResponse.ok ||
           !portfolioResponse.ok ||
           !testimonialsResponse.ok ||
           !bookingsResponse.ok ||
-          !auditResponse.ok
+          !auditResponse.ok ||
+          !identityResponse.ok
         )
           throw new Error(
             "Admin data could not be loaded. Verify your admin session.",
@@ -3814,6 +4086,7 @@ export function FigmaAdmin({
           testimonialRows,
           bookingRows,
           auditRows,
+          identity,
         ] = await Promise.all([
           packagesResponse.json(),
           portfolioResponse.json(),
@@ -3822,9 +4095,11 @@ export function FigmaAdmin({
             : Promise.resolve([]),
           bookingsResponse.ok ? bookingsResponse.json() : Promise.resolve([]),
           auditResponse.json(),
+          identityResponse.json(),
         ]);
 
         if (!mounted) return;
+        setAdminRole(identity.role === "super_admin" ? "super_admin" : "admin");
         setPackages(
           (Array.isArray(packageRows) ? packageRows : []).map((row) => ({
             id: String(row.id),
@@ -3928,37 +4203,19 @@ export function FigmaAdmin({
   }, []);
 
   const addAudit = (entry: Omit<AuditEntry, "id" | "datetime">) => {
-    const action =
-      entry.type === "create"
-        ? "created"
-        : entry.type === "delete"
-          ? "deleted"
-          : entry.type === "edit"
-            ? "edited"
-            : entry.type === "status"
-              ? "status_changed"
-              : entry.type;
     void fetch("/api/audit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${window.sessionStorage.getItem("uploadToken") ?? ""}`,
-        "x-upload-source": "kc-upload",
-      },
-      body: JSON.stringify({
-        action,
-        entityType: entry.section,
-        description: entry.description,
-      }),
+      headers: { "x-upload-source": "kc-upload" },
+      cache: "no-store",
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Audit write failed");
-        return response.json();
+        if (!response.ok) throw new Error("Audit trail refresh failed");
+        return response.json() as Promise<AuditEntry[]>;
       })
-      .then((record) => setAudit((prev) => [record, ...prev]))
-      .catch((error) =>
-        console.error("[figma-admin] audit write failed", error),
-      );
+      .then((records) => setAudit(records))
+      .catch((error) => {
+        console.error("[figma-admin] audit trail refresh failed", error);
+        notify(`${entry.activity} saved, but the activity trail could not refresh.`);
+      });
     notify(`${entry.activity} successfully`);
   };
 
@@ -3980,10 +4237,50 @@ export function FigmaAdmin({
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
         ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+        .table-scroll { scrollbar-width: thin; scrollbar-color: #4a4a4a #101010; }
+        .table-scroll::-webkit-scrollbar { height: 8px; }
+        .table-scroll::-webkit-scrollbar-track { background: #101010; }
+        .table-scroll::-webkit-scrollbar-thumb { background: #4a4a4a; border-radius: 4px; }
+        .table-scroll::-webkit-scrollbar-thumb:hover { background: #666; }
       `}</style>
 
       <div className="flex h-screen overflow-hidden bg-[#080808] text-[#f2f2f2]">
-        <Sidebar active={section} onNavigate={setSection} />
+        <Sidebar
+          active={section}
+          onNavigate={setSection}
+          onLogout={() => void logout()}
+          showAdminTools={adminRole === "super_admin"}
+          className="hidden md:flex"
+        />
+        {mobileSidebarOpen && (
+          <div className="fixed inset-0 z-[60] md:hidden">
+            <button
+              type="button"
+              aria-label="Close navigation menu"
+              onClick={() => setMobileSidebarOpen(false)}
+              className="absolute inset-0 bg-black/70"
+            />
+            <Sidebar
+              active={section}
+              onNavigate={(nextSection) => {
+                setSection(nextSection);
+                setMobileSidebarOpen(false);
+              }}
+              onLogout={() => void logout()}
+              showAdminTools={adminRole === "super_admin"}
+              className="relative z-10 h-full shadow-2xl"
+            />
+          </div>
+        )}
+        <button
+          type="button"
+          aria-label={mobileSidebarOpen ? "Hide navigation menu" : "Show navigation menu"}
+          aria-expanded={mobileSidebarOpen}
+          onClick={() => setMobileSidebarOpen((open) => !open)}
+          className={`fixed top-1/2 z-[70] -translate-y-1/2 rounded-r border border-l-0 border-[#333] bg-[#151515] p-2 text-zinc-300 shadow-lg transition-[left,color] hover:text-white md:hidden ${mobileSidebarOpen ? "left-[220px]" : "left-0"}`}
+        >
+          {mobileSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {dataError && (
             <div className="border-b border-red-500/20 bg-red-500/10 px-6 py-3 text-sm text-red-300">
@@ -4045,6 +4342,7 @@ export function FigmaAdmin({
           )}
           {section === "trail" && <AuditTrailPage audit={audit} />}
           {section === "settings" && <SettingsPage addAudit={addAudit} />}
+          {section === "admins" && adminRole === "super_admin" && <AdminAccountsPage />}
         </div>
       </div>
     </AdminFeedbackContext.Provider>

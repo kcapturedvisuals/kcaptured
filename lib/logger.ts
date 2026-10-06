@@ -1,6 +1,3 @@
-import { promises as fs } from 'fs'
-import path from 'path'
-
 export type UploadLogType =
   | 'key_failed'
   | 'key_success'
@@ -24,11 +21,6 @@ export interface UploadLogEntry {
   ip?: string
 }
 
-const LOGS_DIR = path.join(process.cwd(), 'logs')
-const LOG_FILE = path.join(LOGS_DIR, 'uploads.json')
-const MAX_ENTRIES = 10000
-const CAN_WRITE_LOGS = process.env.VERCEL !== '1'
-
 export async function appendUploadLog(entry: Omit<UploadLogEntry, 'timestamp'>) {
   const logEntry: UploadLogEntry = {
     ...entry,
@@ -36,32 +28,6 @@ export async function appendUploadLog(entry: Omit<UploadLogEntry, 'timestamp'>) 
   }
 
   console.log('[upload-logger]', JSON.stringify(logEntry))
-
-  if (!CAN_WRITE_LOGS) {
-    return
-  }
-
-  try {
-    await fs.mkdir(LOGS_DIR, { recursive: true })
-
-    let logs: UploadLogEntry[] = []
-    try {
-      const raw = await fs.readFile(LOG_FILE, 'utf8')
-      logs = JSON.parse(raw) as UploadLogEntry[]
-    } catch {
-      logs = []
-    }
-
-    logs.push(logEntry)
-
-    if (logs.length > MAX_ENTRIES) {
-      logs = logs.slice(-MAX_ENTRIES)
-    }
-
-    await fs.writeFile(LOG_FILE, JSON.stringify(logs, null, 2), 'utf8')
-  } catch (error) {
-    console.error('[upload-logger] writing failed', error)
-  }
 }
 
 export function getClientIp(request: Request) {

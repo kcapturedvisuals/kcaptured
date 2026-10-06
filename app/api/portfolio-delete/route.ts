@@ -1,7 +1,9 @@
 import { v2 as cloudinary } from 'cloudinary'
 import { appendUploadLog, getClientIp } from '@/lib/logger'
-import { verifyUploadToken } from '@/lib/auth-utils'
+import { verifyUploadRequest } from '@/lib/auth-utils'
 import db, { pool } from '@/lib/db'
+import { isRecord, readJsonBody, sanitizeText } from '@/lib/input-validation'
+import { recordAdminAuditEvent } from '@/lib/admin-audit'
 
 export const runtime = 'nodejs'
 
@@ -14,11 +16,9 @@ cloudinary.config({
 export async function POST(request: Request) {
   const ip = getClientIp(request)
   const userAgent = request.headers.get('user-agent') ?? 'unknown'
-  const authHeader = request.headers.get('authorization') ?? ''
-  const token = authHeader.replace(/^Bearer\s+/i, '')
   const uploadSource = request.headers.get('x-upload-source')
 
-  if (!token || uploadSource !== 'kc-upload' || !verifyUploadToken(token)) {
+  if (!(await verifyUploadRequest(request))) {
     await appendUploadLog({
       type: 'upload_error',
       error: 'Unauthorized portfolio delete request',
@@ -30,8 +30,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = await request.json()
-    let { id, publicId } = body as { id?: string; publicId?: string }
+    const body = await readJsonBody(request)
+    if (!isRecord(body) || (body.id != null && typeof body.id !== 'string') || (body.publicId != null && typeof body.publicId !== 'string'))
+      return new Response(JSON.stringify({ error: 'Invalid portfolio delete request' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    let id = sanitizeText(body.id)
+    let publicId = sanitizeText(body.publicId)
+    if (id.length > 120 || publicId.length > 255)
+      return new Response(JSON.stringify({ error: 'Portfolio identifier is too long' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
 
     if (!id && !publicId) {
       return new Response(JSON.stringify({ error: 'Missing id or publicId' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
@@ -42,24 +47,29 @@ export async function POST(request: Request) {
       publicId = existing.rows[0]?.public_id
     }
 
+    let cloudinaryDeleted = false
     if (publicId && process.env.CLOUDINARY_API_KEY) {
       try {
-        await cloudinary.uploader.destroy(publicId, { resource_type: 'image' })
+        const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'image' })
+        cloudinaryDeleted = result.result === 'ok'
       } catch (cloudErr) {
         console.warn('[portfolio-delete] Cloudinary delete failed', cloudErr)
       }
     }
 
-    // Remove DB record when present
-    try {
-      if (id) {
-        await pool.query('DELETE FROM portfolio_items WHERE id = $1', [id])
-      } else if (publicId) {
-        await pool.query('DELETE FROM portfolio_items WHERE public_id = $1', [publicId])
-      }
-    } catch (dbErr) {
-      console.warn('[portfolio-delete] DB delete failed', dbErr)
+    const deleted = id
+      ? await pool.query('DELETE FROM portfolio_items WHERE id = $1 RETURNING id', [id])
+      : await pool.query('DELETE FROM portfolio_items WHERE public_id = $1 RETURNING id', [publicId])
+    const deletedId = deleted.rows[0]?.id as string | undefined
+    if (!deletedId && !cloudinaryDeleted) {
+      return new Response(JSON.stringify({ error: 'Portfolio item not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
     }
+    await recordAdminAuditEvent(request, {
+      action: 'deleted',
+      entityType: deletedId ? 'portfolio_items' : 'portfolio_media',
+      entityId: deletedId ?? publicId,
+      description: deletedId ? 'Deleted portfolio item' : `Deleted portfolio media asset ${publicId}`,
+    })
 
     await appendUploadLog({ type: 'upload_delete', publicId: publicId ?? id, ip, userAgent })
 

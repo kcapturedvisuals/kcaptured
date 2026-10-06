@@ -52,7 +52,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'KCAPTURED STUDIOS',
     description: 'Affordable lifestyle, studio, and portrait photography in Jessup, Maryland and the DMV area.',
-    url: 'https://kcaptured.com',
+    url: 'https://kcapturedstudio.com',
     siteName: 'KCAPTURED STUDIOS',
     type: 'website',
     images: [

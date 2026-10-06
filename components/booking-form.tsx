@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { sanitizePhone, sanitizeText } from '@/lib/input-validation'
 
 interface PackageOption {
   id: string
@@ -81,12 +82,12 @@ export function BookingForm({ isOpen, initialPackage = '', onClose, onSaved }: B
     const form = new FormData(formElement)
     const preferredDate = String(form.get('preferredDate') ?? '').trim()
     const body = {
-      clientName: String(form.get('clientName') ?? '').trim(),
-      email: String(form.get('email') ?? '').trim(),
-      phone: String(form.get('phone') ?? '').trim(),
-      packageName: packageName.trim(),
+      clientName: sanitizeText(form.get('clientName')),
+      email: sanitizeText(form.get('email')).toLowerCase(),
+      phone: sanitizePhone(form.get('phone')) ?? '',
+      packageName: sanitizeText(packageName),
       preferredDate,
-      notes: String(form.get('notes') ?? '').trim(),
+      notes: sanitizeText(form.get('notes')),
       idempotencyKey: requestKeyRef.current,
     }
 
@@ -103,38 +104,21 @@ export function BookingForm({ isOpen, initialPackage = '', onClose, onSaved }: B
       if (responseText.trim() && contentType.toLowerCase().includes('application/json')) {
         try {
           result = JSON.parse(responseText)
-        } catch (parseError) {
+        } catch {
           console.error('[booking-form] failed to parse JSON response', {
             status: response.status,
-            ok: response.ok,
             contentType,
-            body: responseText,
-            parseError,
           })
         }
       } else if (responseText.trim()) {
         console.error('[booking-form] received non-JSON booking response', {
           status: response.status,
-          ok: response.ok,
           contentType,
-          body: responseText,
         })
       }
 
-      console.info('[booking-form] booking response', {
-        status: response.status,
-        ok: response.ok,
-        contentType,
-        hasBody: Boolean(responseText.trim()),
-        result,
-      })
-
       if (!response.ok) {
-        console.error('[booking-form] booking API returned an error', {
-          status: response.status,
-          body: responseText,
-          result,
-        })
+        setError(result.error || 'Your request could not be submitted. Please check your details and try again.')
         return
       }
 
@@ -142,8 +126,6 @@ export function BookingForm({ isOpen, initialPackage = '', onClose, onSaved }: B
         console.error('[booking-form] successful HTTP response did not include booking.id', {
           status: response.status,
           contentType,
-          body: responseText,
-          result,
         })
         formElement.reset()
         setSavedMessage('Your request reached the server, but the confirmation response was incomplete. Please do not submit it again. We will review your request shortly.')
@@ -161,8 +143,9 @@ export function BookingForm({ isOpen, initialPackage = '', onClose, onSaved }: B
           : 'Your booking request was created. We will contact you shortly.'
       )
       setSaved(true)
-    } catch (requestError) {
-      console.error('[booking-form] booking request failed before a response was processed', requestError)
+    } catch {
+      console.error('[booking-form] booking request failed')
+      setError('Your request could not be submitted. Please try again.')
     } finally {
       submittingRef.current = false
       setSubmitting(false)
@@ -235,18 +218,19 @@ export function BookingForm({ isOpen, initialPackage = '', onClose, onSaved }: B
             </div>
           </div>
         ) : <form onSubmit={handleSubmit} className="space-y-4">
+          {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
           <div>
             <label htmlFor="booking-client" className="mb-1 block text-sm font-medium">Name</label>
-            <input id="booking-client" name="clientName" required maxLength={120} className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 outline-none focus:border-white/40" />
+            <input id="booking-client" name="clientName" type="text" autoComplete="name" required maxLength={120} className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 outline-none focus:border-white/40" />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="booking-email" className="mb-1 block text-sm font-medium">Email</label>
-              <input id="booking-email" name="email" type="email" maxLength={254} className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 outline-none focus:border-white/40" />
+              <input id="booking-email" name="email" type="email" autoComplete="email" required maxLength={254} className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 outline-none focus:border-white/40" />
             </div>
             <div>
               <label htmlFor="booking-phone" className="mb-1 block text-sm font-medium">Phone</label>
-              <input id="booking-phone" name="phone" type="tel" maxLength={40} className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 outline-none focus:border-white/40" />
+              <input id="booking-phone" name="phone" type="tel" autoComplete="tel" maxLength={40} className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 outline-none focus:border-white/40" />
             </div>
           </div>
           <div>
